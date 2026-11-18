@@ -54,6 +54,7 @@ function htmlToText(html) {
         .replace(/&amp;/g, "&")
         .replace(/[ \t]+/g, " ")
         .replace(/\s*\n\s*/g, "\n")
+        .replace(/[\u0000-\u0008\u000B-\u001F]/g, "")
         .trim();
 }
 
@@ -105,6 +106,15 @@ async function toVectors(texts) {
     return result.data.map((d) => d.embedding);
 }
 
+async function searchChunks(question) {
+    const [vector] = await toVectors([question]);
+    const result = await qdrant.query(COLLECTION, {
+        query: vector,
+        limit: 5,
+        with_payload: true
+    });
+    return result.points.filter((r) => r.score >= 0.3);
+}
 server.get("/chunks", async (req, res) => {
     try {
         const chunks = await getChunks();
@@ -138,6 +148,56 @@ server.get("/load", async (req, res) => {
         }
 
         res.json({ ok: true, loaded: chunks.length });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+server.get("/search", async (req, res) => {
+    try {
+        const found = await searchChunks(req.query.q || "");
+        res.json(found.map((r) => ({ score: r.score, title: r.payload.title, text: r.payload.text })));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+server.post("/ask", async (req, res) => {
+    const question = (req.body.question || "").trim();
+    if (!question) {
+        return res.status(400).json({ error: "Empty question" });
+    }
+    try {
+        const found = await searchChunks(question);
+
+        let materials = "(nothing found)";
+        if (found.length > 0) {
+            materials = found.map((r) => r.payload.title + "\n" + r.payload.text).join("\n\n---\n\n");
+        }
+
+               const siteName = process.env.SITE_NAME || "this website";
+        const contact = process.env.CONTACT || "the website team";
+
+        const instructions =
+            "You are an assistant on the website of " + siteName + ". Answer visitors' questions briefly and politely, in the language of the question.\n" +
+            "Use ONLY the information from the Materials section. Do not make anything up.\n" +
+            "If the answer is not in the materials, say you don't know and suggest contacting " + contact + ".\n\n" +
+            "Materials:\n" + materials;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4.1-mini",
+            temperature: 0.2,
+            messages: [
+                { role: "system", content: instructions },
+                { role: "user", content: question }
+            ]
+        });
+
+        const links = [...new Set(found.map((r) => r.payload.link))];
+
+        res.json({ answer: completion.choices[0].message.content, sources: links });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
