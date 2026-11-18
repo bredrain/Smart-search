@@ -1,9 +1,18 @@
 import 'dotenv/config';
 import express from 'express';
 import fs from 'node:fs';
+import OpenAI from 'openai';
+import { QdrantClient } from '@qdrant/js-client-rest';
 
 const PORT = process.env.SERVICE_PORT || process.env.PORT || 3030;
 const WP_URL = process.env.WP_URL;
+const COLLECTION = process.env.COLLECTION || "my_hotel";
+
+const openai = new OpenAI();
+const qdrant = new QdrantClient({
+    url: process.env.QDRANT_URL,
+    apiKey: process.env.QDRANT_API_KEY
+});
 
 const server = express();
 server.use(express.json());
@@ -88,11 +97,49 @@ async function getChunks() {
     return allChunks;
 }
 
+async function toVectors(texts) {
+    const result = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: texts
+    });
+    return result.data.map((d) => d.embedding);
+}
+
 server.get("/chunks", async (req, res) => {
     try {
         const chunks = await getChunks();
         res.json({ count: chunks.length, chunks: chunks });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+server.get("/load", async (req, res) => {
+    if (!process.env.LOAD_KEY || req.query.key !== process.env.LOAD_KEY) {
+        return res.status(403).json({ error: "Invalid key" });
+    }
+    try {
+        const check = await qdrant.collectionExists(COLLECTION);
+        if (check.exists) {
+            await qdrant.deleteCollection(COLLECTION);
+        }
+        await qdrant.createCollection(COLLECTION, {
+            vectors: { size: 1536, distance: "Cosine" }
+        });
+
+        const chunks = await getChunks();
+
+        for (let i = 0; i < chunks.length; i = i + 50) {
+            const batch = chunks.slice(i, i + 50);
+            const vectors = await toVectors(batch.map((c) => c.title + "\n" + c.text));
+            const points = batch.map((c, j) => ({ id: i + j, vector: vectors[j], payload: c }));
+            await qdrant.upsert(COLLECTION, { wait: true, points: points });
+            console.log("Loaded " + Math.min(i + 50, chunks.length) + " of " + chunks.length);
+        }
+
+        res.json({ ok: true, loaded: chunks.length });
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
