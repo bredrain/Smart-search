@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import { htmlToText, chunkText } from "./text.js";
 import { replaceChunks } from "./vectors.js";
 import { setSyncResult } from "./store.js";
+import { indexPendingDocuments } from "./documents.js";
 import { httpError } from "./errors.js";
 
 const syncing = new Set();
@@ -54,17 +54,6 @@ export async function getWordPressChunks(site) {
     return chunks;
 }
 
-function getExtraChunks(site) {
-    if (!site.extraFile || !fs.existsSync(site.extraFile)) return [];
-    const text = fs.readFileSync(site.extraFile, "utf8");
-    const title = "Guest information";
-    return chunkText(text).map((piece) => ({
-        text: piece,
-        embedText: `${title}\n${piece}`,
-        payload: { source: "doc", docId: "extra-txt", title, url: site.wpUrl },
-    }));
-}
-
 export async function syncSite(site) {
     if (syncing.has(site.id)) {
         throw httpError(409, "Sync is already in progress for this site");
@@ -72,10 +61,10 @@ export async function syncSite(site) {
     syncing.add(site.id);
     try {
         const wordpress = await replaceChunks(site.collection, { source: "wp" }, await getWordPressChunks(site));
-        const extra = await replaceChunks(site.collection, { source: "doc", docId: "extra-txt" }, getExtraChunks(site));
-        setSyncResult(site.id, { ok: true, wordpress, extra });
-        console.log(`Sync finished for ${site.id}: ${wordpress} WordPress chunks, ${extra} extra chunks`);
-        return { wordpress, extra };
+        const documents = await indexPendingDocuments(site);
+        setSyncResult(site.id, { ok: true, wordpress, documents });
+        console.log(`Sync finished for ${site.id}: ${wordpress} WordPress chunks, ${documents} documents indexed`);
+        return { wordpress, documents };
     } catch (err) {
         setSyncResult(site.id, { ok: false, error: err.message });
         throw err;

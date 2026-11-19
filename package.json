@@ -23,6 +23,8 @@
     "@qdrant/js-client-rest": "^1.20.0",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
-    "openai": "^7.59.0"
+    "mammoth": "^1.13.0",
+    "openai": "^7.59.0",
+    "unpdf": "^2.2.1"
   }
 }

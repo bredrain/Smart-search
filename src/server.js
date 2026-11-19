@@ -1,14 +1,16 @@
 import express from "express";
 import { config } from "./config.js";
-import { listSites, requireSite, requireSiteByKey, createSite, updateSite, deleteSite, publicView } from "./store.js";
+import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, publicView } from "./store.js";
 import { syncSite } from "./wordpress.js";
 import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
+import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText } from "./documents.js";
 import { checkLimits } from "./limits.js";
 import { httpError } from "./errors.js";
 
 const server = express();
 server.set("trust proxy", 1);
+server.use("/admin/api", express.json({ limit: "25mb" }));
 server.use(express.json());
 server.use(express.static("public"));
 
@@ -54,6 +56,7 @@ admin.put("/sites/:id", handle(async (req, res) => {
 admin.delete("/sites/:id", handle(async (req, res) => {
     const site = requireSite(req.params.id);
     await dropCollection(site.collection);
+    deleteSiteDocuments(site.id);
     deleteSite(site.id);
     res.json({ ok: true });
 }));
@@ -67,6 +70,25 @@ admin.get("/sites/:id/search", handle(async (req, res) => {
     const site = requireSite(req.params.id);
     const found = await findChunks(site, String(req.query.q || ""));
     res.json(found.map((r) => ({ score: r.score, title: r.payload.title, text: r.payload.text })));
+}));
+
+admin.get("/sites/:id/documents", handle(async (req, res) => {
+    res.json(requireSite(req.params.id).documents);
+}));
+
+admin.get("/sites/:id/documents/:docId", handle(async (req, res) => {
+    const doc = requireDocument(req.params.id, req.params.docId);
+    res.json({ ...doc, text: readDocumentText(req.params.id, doc.id) });
+}));
+
+admin.post("/sites/:id/documents", handle(async (req, res) => {
+    const site = requireSite(req.params.id);
+    res.status(201).json(await createDocument(site, req.body || {}));
+}));
+
+admin.delete("/sites/:id/documents/:docId", handle(async (req, res) => {
+    await deleteDocument(requireSite(req.params.id), req.params.docId);
+    res.json({ ok: true });
 }));
 
 server.use("/admin/api", admin);

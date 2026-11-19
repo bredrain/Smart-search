@@ -10,10 +10,15 @@ const LISTS = ["postTypes", "allowedOrigins"];
 
 let sites = load();
 addFirstSiteFromEnv();
+moveExtraFiles();
 
 function load() {
     if (!fs.existsSync(FILE)) return [];
-    return JSON.parse(fs.readFileSync(FILE, "utf8"));
+    const list = JSON.parse(fs.readFileSync(FILE, "utf8"));
+    for (const site of list) {
+        site.documents = site.documents || [];
+    }
+    return list;
 }
 
 function save() {
@@ -61,10 +66,38 @@ function addFirstSiteFromEnv() {
     site.collection = env.collection || "site_main";
     site.publicKey = crypto.randomBytes(16).toString("hex");
     site.extraFile = fs.existsSync("extra.txt") ? "extra.txt" : "";
+    site.documents = [];
     site.createdAt = new Date().toISOString();
     sites.push(site);
     save();
     console.log(`Created site "main" from .env (collection ${site.collection})`);
+}
+
+function moveExtraFiles() {
+    let changed = false;
+    for (const site of sites) {
+        if (site.extraFile === undefined) continue;
+        if (site.extraFile && fs.existsSync(site.extraFile)) {
+            const target = path.join(config.dataDir, "docs", site.id, "extra-txt.txt");
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.copyFileSync(site.extraFile, target);
+            site.documents.push({
+                id: "extra-txt",
+                title: "Guest information",
+                type: "file",
+                fileName: path.basename(site.extraFile),
+                url: site.wpUrl,
+                chars: fs.readFileSync(target, "utf8").length,
+                chunks: 0,
+                needsIndex: true,
+                createdAt: new Date().toISOString(),
+            });
+            console.log(`Moved ${site.extraFile} into documents of site "${site.id}"`);
+        }
+        delete site.extraFile;
+        changed = true;
+    }
+    if (changed) save();
 }
 
 export function listSites() {
@@ -92,7 +125,7 @@ export function createSite(input) {
     site.id = makeId(site.name);
     site.collection = `site_${site.id.replace(/-/g, "_")}`;
     site.publicKey = crypto.randomBytes(16).toString("hex");
-    site.extraFile = "";
+    site.documents = [];
     site.createdAt = new Date().toISOString();
     sites.push(site);
     save();
@@ -111,6 +144,28 @@ export function setSyncResult(id, result) {
     const site = getSite(id);
     if (!site) return;
     site.lastSync = { at: new Date().toISOString(), ...result };
+    save();
+}
+
+export function requireDocument(siteId, docId) {
+    const doc = requireSite(siteId).documents.find((d) => d.id === docId);
+    if (!doc) throw httpError(404, "Document not found");
+    return doc;
+}
+
+export function addDocument(siteId, doc) {
+    requireSite(siteId).documents.push(doc);
+    save();
+}
+
+export function updateDocument(siteId, docId, changes) {
+    Object.assign(requireDocument(siteId, docId), changes);
+    save();
+}
+
+export function removeDocument(siteId, docId) {
+    const site = requireSite(siteId);
+    site.documents = site.documents.filter((d) => d.id !== docId);
     save();
 }
 
