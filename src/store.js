@@ -140,9 +140,12 @@ export function updateSite(id, input) {
     return sites[index];
 }
 
-admin.post("/sites/:id/rotate-key", handle(async (req, res) => {
-    res.json(publicView(rotatePublicKey(req.params.id)));
-}));
+export function rotatePublicKey(id) {
+    const site = requireSite(id);
+    site.publicKey = crypto.randomBytes(16).toString("hex");
+    save();
+    return site;
+}
 
 export function setSyncResult(id, result) {
     const site = getSite(id);

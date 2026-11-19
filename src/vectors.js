@@ -17,20 +17,35 @@ export async function embed(texts) {
     return vectors;
 }
 
+const INDEXES = [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"]];
+const indexed = new Set();
+
+async function ensureIndexes(collection) {
+    if (indexed.has(collection)) return;
+    const info = await qdrant.getCollection(collection);
+    const existing = info.payload_schema || {};
+    for (const [field, schema] of INDEXES) {
+        if (!existing[field]) {
+            await qdrant.createPayloadIndex(collection, { field_name: field, field_schema: schema, wait: true });
+        }
+    }
+    indexed.add(collection);
+}
+
 export async function ensureCollection(collection) {
     const { exists } = await qdrant.collectionExists(collection);
-    if (exists) return;
-    await qdrant.createCollection(collection, {
-        vectors: { size: config.vectorSize, distance: "Cosine" },
-    });
-    for (const [field, schema] of [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"]]) {
-        await qdrant.createPayloadIndex(collection, { field_name: field, field_schema: schema, wait: true });
+    if (!exists) {
+        await qdrant.createCollection(collection, {
+            vectors: { size: config.vectorSize, distance: "Cosine" },
+        });
     }
+    await ensureIndexes(collection);
 }
 
 export async function dropCollection(collection) {
     const { exists } = await qdrant.collectionExists(collection);
     if (exists) await qdrant.deleteCollection(collection);
+    indexed.delete(collection);
 }
 
 export async function deleteWhere(collection, conditions) {
@@ -40,6 +55,7 @@ export async function deleteWhere(collection, conditions) {
     }
     const { exists } = await qdrant.collectionExists(collection);
     if (!exists) return;
+    await ensureIndexes(collection);
     await qdrant.delete(collection, {
         wait: true,
         filter: { must: entries.map(([key, value]) => ({ key, match: { value } })) },

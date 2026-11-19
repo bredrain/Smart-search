@@ -19,8 +19,11 @@ function handle(fn) {
         try {
             await fn(req, res);
         } catch (err) {
-            console.error(err.message);
-            res.status(err.status || 500).json({ error: err.status ? err.message : "Server error" });
+            if (err.expose) {
+                return res.status(err.status).json({ error: err.message });
+            }
+            console.error(err.message, err.data?.status?.error || "");
+            res.status(500).json({ error: "Server error" });
         }
     };
 }
