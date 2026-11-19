@@ -8,7 +8,7 @@
     }
     const server = new URL(script.src).origin;
     const color = script.dataset.color || "#1f2937";
-
+    const pageLang = (document.documentElement.lang || "").toLowerCase();
     const styles = `
         :host { all: initial; }
         * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -106,7 +106,7 @@
                 const response = await fetch(`${server}/ask`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ key, question }),
+                    body: JSON.stringify({ key, question, lang: pageLang }),
                 });
                 const data = await response.json();
                 waiting.remove();

@@ -5,8 +5,8 @@ import { config, toList } from "./config.js";
 import { httpError } from "./errors.js";
 
 const FILE = path.join(config.dataDir, "sites.json");
-const EDITABLE = ["name", "wpUrl", "wpUser", "wpPass", "postTypes", "contact", "language", "allowedOrigins"];
-const LISTS = ["postTypes", "allowedOrigins"];
+const EDITABLE = ["name", "wpUrl", "wpUser", "wpPass", "postTypes", "contact", "language", "languages", "allowedOrigins"];
+const LISTS = ["postTypes", "languages", "allowedOrigins"];
 
 let sites = load();
 addFirstSiteFromEnv();
@@ -17,6 +17,7 @@ function load() {
     const list = JSON.parse(fs.readFileSync(FILE, "utf8"));
     for (const site of list) {
         site.documents = site.documents || [];
+        site.languages = site.languages || [];
     }
     return list;
 }
@@ -51,6 +52,7 @@ function clean(input, current = {}) {
     site.wpPass = site.wpPass || "";
     site.contact = site.contact || "";
     site.language = site.language || "";
+    site.languages = (site.languages || []).map((code) => code.toLowerCase());
     site.allowedOrigins = site.allowedOrigins || [];
     if (!site.postTypes || site.postTypes.length === 0) site.postTypes = ["posts", "pages"];
     if (!site.name) throw httpError(400, "name is required");

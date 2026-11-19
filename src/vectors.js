@@ -17,7 +17,7 @@ export async function embed(texts) {
     return vectors;
 }
 
-const INDEXES = [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"]];
+const INDEXES = [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"], ["lang", "keyword"]];
 const indexed = new Set();
 
 async function ensureIndexes(collection) {
@@ -84,9 +84,9 @@ export async function countPoints(collection) {
     return count;
 }
 
-export async function search(collection, vector, limit) {
+export async function search(collection, vector, limit, filter) {
     const { exists } = await qdrant.collectionExists(collection);
     if (!exists) return [];
-    const result = await qdrant.query(collection, { query: vector, limit, with_payload: true });
+    const result = await qdrant.query(collection, { query: vector, limit, filter, with_payload: true });
     return result.points;
 }

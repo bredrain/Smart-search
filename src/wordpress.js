@@ -15,12 +15,13 @@ function headers(site) {
     return result;
 }
 
-async function fetchAll(site, postType) {
+async function fetchAll(site, postType, lang) {
     const items = [];
     let page = 1;
     let totalPages = 1;
     while (page <= totalPages) {
-        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}`;
+        const language = lang ? `&lang=${encodeURIComponent(lang)}` : "";
+        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}${language}`;
         const response = await fetch(url, { headers: headers(site) });
         if (!response.ok) {
             throw new Error(`WordPress responded ${response.status} for ${url}`);
@@ -32,7 +33,7 @@ async function fetchAll(site, postType) {
     return items;
 }
 
-function itemToChunks(item, postType) {
+function itemToChunks(item, postType, lang) {
     const title = htmlToText(item.title?.rendered);
     const text = htmlToText(item.content?.rendered);
     return chunkText(text)
@@ -40,15 +41,18 @@ function itemToChunks(item, postType) {
         .map((piece) => ({
             text: piece,
             embedText: `${title}\n${piece}`,
-            payload: { source: "wp", title, url: item.link, postId: item.id, postType },
+            payload: { source: "wp", title, url: item.link, postId: item.id, postType, ...(lang ? { lang } : {}) },
         }));
 }
 
 export async function getWordPressChunks(site) {
+    const languages = site.languages.length ? site.languages : [""];
     const chunks = [];
-    for (const postType of site.postTypes) {
-        for (const item of await fetchAll(site, postType)) {
-            chunks.push(...itemToChunks(item, postType));
+    for (const lang of languages) {
+        for (const postType of site.postTypes) {
+            for (const item of await fetchAll(site, postType, lang)) {
+                chunks.push(...itemToChunks(item, postType, lang));
+            }
         }
     }
     return chunks;

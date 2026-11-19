@@ -15,6 +15,7 @@
         button.secondary { background: #fff; color: #1f2937; border-color: #d1d5db; }
         button.danger { background: #b91c1c; border-color: #b91c1c; }
         button:disabled { opacity: 0.6; cursor: default; }
+        select { padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; background: #fff; }
         input, textarea { width: 100%; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; background: #fff; }
         textarea { min-height: 110px; resize: vertical; }
         label { display: block; margin-bottom: 10px; }
@@ -232,7 +233,8 @@
                     field("wpPass", "HTTP password", "", { type: "password", autocomplete: "new-password", placeholder: site.hasPassword ? "Leave empty to keep the current password" : "" }),
                     field("postTypes", "Post types", (site.postTypes || ["posts", "pages"]).join(", "), {}, "Comma separated, e.g. posts, pages"),
                     field("contact", "Contact", site.contact, { placeholder: "info@example.com" }, "Suggested when the assistant does not know the answer"),
-                    field("language", "Site language", site.language, { placeholder: "English" }, "Questions are translated to this language before search. Leave empty to skip"),
+                    field("language", "Site language", site.language, { placeholder: "English" }, "For single-language sites: questions are translated to this language before search. Leave empty to skip"),
+                    field("languages", "Languages (WPML)", (site.languages || []).join(", "), { placeholder: "de, en" }, "For multilingual sites: language codes, the main language first. Each language is loaded separately"),
                     field("allowedOrigins", "Allowed websites", (site.allowedOrigins || []).join(", "), { placeholder: "https://example.com" }, "Where the widget may work. Comma separated, no slash at the end. Empty = everywhere")
                 ),
                 button
@@ -305,7 +307,7 @@
             const failed = site.lastSync && !site.lastSync.ok;
             return el("div", { class: "card" },
                 el("h2", {}, site.name),
-                el("div", { class: "muted" }, `${site.wpUrl}  ·  id: ${site.id}`),
+                el("div", { class: "muted" }, `${site.wpUrl}  ·  id: ${site.id}${site.languages.length ? `  ·  languages: ${site.languages.join(", ")}` : ""}`),
                 el("div", { class: "stats" },
                     el("div", {}, el("b", {}, site.chunks), el("span", { class: "muted" }, "chunks in the database")),
                     el("div", {}, el("b", {}, site.documents.length), el("span", { class: "muted" }, "documents"))
@@ -420,13 +422,15 @@
         }
 
         function testCard(site) {
+            const langSelect = el("select", {}, site.languages.map((code) => el("option", { value: code }, code)));
+            const langPicker = site.languages.length ? el("label", { class: "row" }, el("span", { style: "margin: 0" }, "Page language"), langSelect) : null;
             const searchInput = el("input", { placeholder: "Search the database, e.g. dinner" });
             const searchButton = el("button", { type: "button", class: "secondary" }, "Search");
             const searchResults = el("div", {});
             searchButton.addEventListener("click", () => run(searchButton, "...", async () => {
-                const results = await api(`/sites/${encodeURIComponent(site.id)}/search?q=${encodeURIComponent(searchInput.value)}`);
+                const results = await api(`/sites/${encodeURIComponent(site.id)}/search?q=${encodeURIComponent(searchInput.value)}&lang=${encodeURIComponent(langSelect.value)}`);
                 searchResults.replaceChildren(...(results.length
-                    ? results.map((r) => el("div", { class: "result" }, el("b", {}, `${r.score.toFixed(2)}  ${r.title}`), el("div", { class: "muted" }, r.text.slice(0, 300))))
+                    ? results.map((r) => el("div", { class: "result" }, el("b", {}, `${r.score.toFixed(2)}  ${r.lang ? `[${r.lang}] ` : ""}${r.title}`), el("div", { class: "muted" }, r.text.slice(0, 300))))
                     : [el("p", { class: "muted" }, "Nothing found")]));
             }));
 
@@ -437,7 +441,7 @@
                 const response = await fetch("/ask", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ key: site.publicKey, question: askInput.value }),
+                    body: JSON.stringify({ key: site.publicKey, question: askInput.value, lang: langSelect.value }),
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.error || "Request failed");
@@ -449,6 +453,7 @@
 
             return el("div", { class: "card" },
                 el("h2", {}, "Test"),
+                langPicker,
                 el("h3", {}, "Search"),
                 el("div", { class: "row" }, el("div", { style: "flex: 1" }, searchInput), searchButton),
                 searchResults,
