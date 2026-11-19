@@ -1,106 +1,133 @@
 (function () {
     const script = document.currentScript;
-    const base = script.src.replace(/\/widget\.js.*$/, "");
-    const title = script.getAttribute("data-title") || "Assistant";
-    const welcome = script.getAttribute("data-welcome") || "Hi! How can I help you?";
-    const color = script.getAttribute("data-color") || "#2563eb";
+    if (!script) return;
+    const key = script.dataset.key;
+    if (!key) {
+        console.error("Smart search widget: data-key is missing");
+        return;
+    }
+    const server = new URL(script.src).origin;
+    const color = script.dataset.color || "#1f2937";
 
-    const host = document.createElement("div");
-    host.style.cssText = "position:fixed;right:20px;bottom:20px;z-index:2147483000;";
-    document.body.appendChild(host);
-    const root = host.attachShadow({ mode: "open" });
-
-    root.innerHTML = `
-        <style>
-            * { box-sizing: border-box; font-family: Arial, sans-serif; }
-            .wrap { display: flex; flex-direction: column; align-items: flex-end; }
-            .toggle { width: 56px; height: 56px; border-radius: 50%; border: 0; background: ${color}; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
-            .panel { display: none; flex-direction: column; width: 340px; max-width: calc(100vw - 40px); height: 480px; max-height: calc(100vh - 100px); background: #fff; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.25); overflow: hidden; margin-bottom: 12px; }
-            .panel.open { display: flex; }
-            .head { background: ${color}; color: #fff; padding: 12px 14px; font-weight: bold; display: flex; justify-content: space-between; }
-            .close { background: none; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
-            .log { flex: 1; overflow-y: auto; padding: 12px; background: #f6f6f7; }
-            .msg { max-width: 85%; margin: 0 0 10px; padding: 9px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
-            .user { margin-left: auto; background: ${color}; color: #fff; }
-            .bot { background: #fff; border: 1px solid #e3e3e3; color: #222; }
-            .links { display: block; margin-top: 6px; font-size: 12px; }
-            .links a { color: ${color}; }
-            form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; }
-            input { flex: 1; padding: 9px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
-            .send { border: 0; border-radius: 8px; background: ${color}; color: #fff; padding: 0 14px; cursor: pointer; }
-            .send:disabled { opacity: .5; }
-        </style>
-        <div class="wrap">
-            <div class="panel">
-                <div class="head"><span class="title"></span><button class="close">x</button></div>
-                <div class="log"></div>
-                <form><input placeholder="Your question..." maxlength="1000"><button class="send">Send</button></form>
-            </div>
-            <button class="toggle">?</button>
-        </div>
+    const styles = `
+        :host { all: initial; }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .open { position: fixed; right: 20px; bottom: 20px; z-index: 2147483000; width: 56px; height: 56px; border: none; border-radius: 50%; background: ${color}; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+        .box { position: fixed; right: 20px; bottom: 88px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 40px); height: 480px; max-height: calc(100vh - 120px); display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); overflow: hidden; }
+        .box[hidden] { display: none; }
+        .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: ${color}; color: #fff; font-size: 15px; font-weight: 600; }
+        .close { border: none; background: none; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+        .messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #f7f7f8; }
+        .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; color: #111; }
+        .user { align-self: flex-end; background: ${color}; color: #fff; }
+        .bot { align-self: flex-start; background: #fff; border: 1px solid #e5e5e5; }
+        .error { align-self: flex-start; background: #fdecec; color: #8a1c1c; }
+        .sources { margin-top: 6px; font-size: 12px; }
+        .sources a { display: block; color: #2563eb; }
+        .form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e5e5e5; }
+        .input { flex: 1; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 8px; font-size: 14px; }
+        .send { padding: 8px 14px; border: none; border-radius: 8px; background: ${color}; color: #fff; font-size: 14px; cursor: pointer; }
+        .send:disabled { opacity: 0.6; cursor: default; }
     `;
 
-    const panel = root.querySelector(".panel");
-    const log = root.querySelector(".log");
-    const form = root.querySelector("form");
-    const input = root.querySelector("input");
-    const send = root.querySelector(".send");
-    root.querySelector(".title").textContent = title;
+    function start() {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        const root = host.attachShadow({ mode: "open" });
+        root.innerHTML = `
+            <style>${styles}</style>
+            <button class="open" type="button" aria-label="Open chat">Chat</button>
+            <div class="box" hidden>
+                <div class="head"><span class="title">Ask us</span><button class="close" type="button" aria-label="Close">&times;</button></div>
+                <div class="messages"></div>
+                <form class="form">
+                    <input class="input" type="text" maxlength="1000" autocomplete="off" placeholder="Type your question...">
+                    <button class="send" type="submit">Send</button>
+                </form>
+            </div>
+        `;
 
-    function addMessage(text, who) {
-        const msg = document.createElement("div");
-        msg.className = "msg " + who;
-        msg.textContent = text;
-        log.appendChild(msg);
-        log.scrollTop = log.scrollHeight;
-        return msg;
-    }
+        const box = root.querySelector(".box");
+        const title = root.querySelector(".title");
+        const messages = root.querySelector(".messages");
+        const form = root.querySelector(".form");
+        const input = root.querySelector(".input");
+        const send = root.querySelector(".send");
 
-    addMessage(welcome, "bot");
+        root.querySelector(".open").addEventListener("click", () => {
+            box.hidden = !box.hidden;
+            if (!box.hidden) input.focus();
+        });
+        root.querySelector(".close").addEventListener("click", () => {
+            box.hidden = true;
+        });
 
-    root.querySelector(".toggle").addEventListener("click", () => {
-        panel.classList.toggle("open");
-        if (panel.classList.contains("open")) input.focus();
-    });
-    root.querySelector(".close").addEventListener("click", () => panel.classList.remove("open"));
-
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const question = input.value.trim();
-        if (!question) return;
-        input.value = "";
-        send.disabled = true;
-        addMessage(question, "user");
-        const answer = addMessage("...", "bot");
-
-        try {
-            const response = await fetch(base + "/ask", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ question: question })
-            });
-            const data = await response.json();
-            answer.textContent = data.answer || ("Error: " + data.error);
-
-            if (data.sources && data.sources.length > 0) {
-                const links = document.createElement("span");
-                links.className = "links";
-                data.sources.forEach((url, i) => {
+        function addMessage(text, type, sources) {
+            const div = document.createElement("div");
+            div.className = `msg ${type}`;
+            div.textContent = text;
+            const links = (sources || []).filter((url) => /^https?:\/\//.test(url));
+            if (links.length) {
+                const list = document.createElement("div");
+                list.className = "sources";
+                for (const url of links) {
                     const a = document.createElement("a");
                     a.href = url;
                     a.target = "_blank";
                     a.rel = "noopener";
-                    a.textContent = "Source " + (i + 1);
-                    links.appendChild(a);
-                    if (i < data.sources.length - 1) links.append(" | ");
-                });
-                answer.appendChild(links);
+                    a.textContent = url;
+                    list.appendChild(a);
+                }
+                div.appendChild(list);
             }
-        } catch (err) {
-            answer.textContent = "Could not reach the server. Please try again later.";
-        } finally {
-            send.disabled = false;
-            input.focus();
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+            return div;
         }
-    });
+
+        addMessage("Hello! Ask me anything about this website.", "bot");
+
+        fetch(`${server}/widget-config?key=${encodeURIComponent(key)}`)
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.name) title.textContent = script.dataset.title || data.name;
+            })
+            .catch(() => {});
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const question = input.value.trim();
+            if (!question) return;
+            addMessage(question, "user");
+            input.value = "";
+            send.disabled = true;
+            const waiting = addMessage("...", "bot");
+            try {
+                const response = await fetch(`${server}/ask`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ key, question }),
+                });
+                const data = await response.json();
+                waiting.remove();
+                if (!response.ok) {
+                    addMessage(data.error || "Something went wrong. Please try again.", "error");
+                } else {
+                    addMessage(data.answer, "bot", data.sources);
+                }
+            } catch (err) {
+                waiting.remove();
+                addMessage("Connection problem. Please try again.", "error");
+            } finally {
+                send.disabled = false;
+                input.focus();
+            }
+        });
+    }
+
+    if (document.body) {
+        start();
+    } else {
+        document.addEventListener("DOMContentLoaded", start);
+    }
 })();

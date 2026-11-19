@@ -1,12 +1,14 @@
 import express from "express";
 import { config } from "./config.js";
-import { listSites, requireSite, createSite, updateSite, deleteSite, publicView } from "./store.js";
+import { listSites, requireSite, requireSiteByKey, createSite, updateSite, deleteSite, publicView } from "./store.js";
 import { syncSite } from "./wordpress.js";
 import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
+import { checkLimits } from "./limits.js";
 import { httpError } from "./errors.js";
 
 const server = express();
+server.set("trust proxy", 1);
 server.use(express.json());
 server.use(express.static("public"));
 
@@ -16,7 +18,7 @@ function handle(fn) {
             await fn(req, res);
         } catch (err) {
             console.error(err.message);
-            res.status(err.status || 500).json({ error: err.message });
+            res.status(err.status || 500).json({ error: err.status ? err.message : "Server error" });
         }
     };
 }
@@ -69,11 +71,11 @@ admin.get("/sites/:id/search", handle(async (req, res) => {
 
 server.use("/admin/api", admin);
 
-server.use("/ask", (req, res, next) => {
+function publicCors(req, res, next) {
     const origin = req.headers.origin;
-    if (origin && (config.allowedOrigins.length === 0 || config.allowedOrigins.includes(origin))) {
+    if (origin) {
         res.set("Access-Control-Allow-Origin", origin);
-        res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.set("Access-Control-Allow-Headers", "Content-Type");
         res.set("Vary", "Origin");
     }
@@ -81,15 +83,34 @@ server.use("/ask", (req, res, next) => {
         return res.sendStatus(204);
     }
     next();
-});
+}
+
+function checkOrigin(req, site) {
+    const origin = req.headers.origin;
+    if (!origin || site.allowedOrigins.length === 0) return;
+    if (origin.endsWith(`//${req.get("host")}`)) return;
+    if (!site.allowedOrigins.includes(origin)) {
+        throw httpError(403, "This website is not allowed to use this chat");
+    }
+}
+
+server.use("/widget-config", publicCors);
+server.use("/ask", publicCors);
+
+server.get("/widget-config", handle(async (req, res) => {
+    const site = requireSiteByKey(String(req.query.key || ""));
+    checkOrigin(req, site);
+    res.json({ name: site.name });
+}));
 
 server.post("/ask", handle(async (req, res) => {
+    const site = requireSiteByKey(String(req.body?.key || ""));
+    checkOrigin(req, site);
     const question = String(req.body?.question || "").trim().slice(0, 1000);
     if (!question) {
         return res.status(400).json({ error: "Empty question" });
     }
-    const site = req.body?.siteId ? requireSite(String(req.body.siteId)) : listSites()[0];
-    if (!site) throw httpError(404, "No sites configured");
+    checkLimits(site.id, req.ip);
     res.json(await answer(site, question));
 }));
 

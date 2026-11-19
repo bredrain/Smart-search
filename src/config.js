@@ -20,7 +20,8 @@ export const config = {
     port: Number(process.env.SERVICE_PORT || process.env.PORT || 3030),
     adminKey: process.env.ADMIN_KEY || "",
     dataDir: process.env.DATA_DIR || "data",
-    allowedOrigins: toList(process.env.ALLOWED_ORIGINS),
+    perMinuteLimit: Number(process.env.PER_MINUTE_LIMIT || 10),
+    dailyLimit: Number(process.env.DAILY_LIMIT || 300),
     reloadHours: Number(process.env.RELOAD_HOURS || 0),
     embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
     vectorSize: Number(process.env.VECTOR_SIZE || 1536),
@@ -34,6 +35,7 @@ export const config = {
         contact: process.env.CONTACT || "",
         language: process.env.SITE_LANGUAGE || "",
         collection: process.env.COLLECTION || "",
+        allowedOrigins: toList(process.env.ALLOWED_ORIGINS),
     },
 };
 

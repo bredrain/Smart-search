@@ -81,6 +81,12 @@ export function requireSite(id) {
     return site;
 }
 
+export function requireSiteByKey(key) {
+    const site = key ? sites.find((s) => s.publicKey === key) : undefined;
+    if (!site) throw httpError(404, "Unknown site key");
+    return site;
+}
+
 export function createSite(input) {
     const site = clean(input);
     site.id = makeId(site.name);
