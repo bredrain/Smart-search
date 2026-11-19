@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Search Admin</title>
+    <style>
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: #1f2937; background: #f3f4f6; }
+        h1 { margin: 0; font-size: 18px; }
+        h2 { margin: 0 0 12px; font-size: 16px; }
+        h3 { margin: 0 0 8px; font-size: 14px; }
+        button { padding: 7px 12px; border: 1px solid #1f2937; border-radius: 6px; background: #1f2937; color: #fff; font: inherit; cursor: pointer; }
+        button.secondary { background: #fff; color: #1f2937; border-color: #d1d5db; }
+        button.danger { background: #b91c1c; border-color: #b91c1c; }
+        button:disabled { opacity: 0.6; cursor: default; }
+        input, textarea { width: 100%; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; background: #fff; }
+        textarea { min-height: 110px; resize: vertical; }
+        label { display: block; margin-bottom: 10px; }
+        label span { display: block; margin-bottom: 4px; font-weight: 600; }
+        label small { display: block; margin-top: 3px; color: #6b7280; }
+        pre { margin: 0; padding: 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; white-space: pre-wrap; word-break: break-all; font-size: 12px; }
+        .login { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login form { width: 320px; padding: 24px; background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); }
+        .login h1 { margin-bottom: 16px; }
+        .login button { width: 100%; margin-top: 10px; }
+        .error { color: #b91c1c; }
+        header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+        main { display: flex; gap: 20px; padding: 20px; align-items: flex-start; }
+        aside { width: 240px; flex-shrink: 0; padding: 14px; background: #fff; border-radius: 10px; }
+        .aside-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .aside-head h2 { margin: 0; }
+        #site-list { margin: 0; padding: 0; list-style: none; }
+        #site-list li { padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+        #site-list li:hover { background: #f3f4f6; }
+        #site-list li.active { background: #1f2937; color: #fff; }
+        #site-list small { display: block; opacity: 0.7; }
+        #content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+        .card { padding: 16px; background: #fff; border-radius: 10px; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .muted { color: #6b7280; }
+        .stats { display: flex; gap: 24px; margin: 8px 0 12px; }
+        .stats b { display: block; font-size: 20px; }
+        .doc { padding: 10px 0; border-top: 1px solid #f3f4f6; }
+        .doc:first-child { border-top: none; }
+        .doc .row { justify-content: space-between; }
+        .doc pre { margin-top: 8px; max-height: 240px; overflow: auto; }
+        .result { padding: 8px 0; border-top: 1px solid #f3f4f6; }
+        .answer { margin-top: 10px; padding: 10px; background: #f9fafb; border-radius: 6px; white-space: pre-wrap; }
+        .answer a { display: block; font-size: 12px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+        .toast { position: fixed; right: 20px; bottom: 20px; max-width: 360px; padding: 10px 14px; border-radius: 8px; background: #065f46; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2); }
+        .toast.error { background: #b91c1c; color: #fff; }
+        .link { padding: 0; border: none; background: none; color: #2563eb; }
+        @media (max-width: 800px) { main { flex-direction: column; } aside { width: 100%; } .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div id="login" class="login" hidden>
+        <form id="login-form">
+            <h1>Smart Search Admin</h1>
+            <label><span>Admin key</span><input id="login-key" type="password" required autocomplete="current-password"></label>
+            <button type="submit">Sign in</button>
+            <p id="login-error" class="error"></p>
+        </form>
+    </div>
+
+    <div id="app" hidden>
+        <header>
+            <h1>Smart Search Admin</h1>
+            <button id="logout" class="link" type="button">Sign out</button>
+        </header>
+        <main>
+            <aside>
+                <div class="aside-head">
+                    <h2>Sites</h2>
+                    <button id="new-site" type="button">+ Add</button>
+                </div>
+                <ul id="site-list"></ul>
+            </aside>
+            <section id="content"></section>
+        </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script>
+        const MAX_FILE_BYTES = 15 * 1024 * 1024;
+        const state = { key: "", sites: [], currentId: null };
+        const content = document.getElementById("content");
+
+        function readKey() {
+            try {
+                return sessionStorage.getItem("adminKey") || "";
+            } catch (err) {
+                return "";
+            }
+        }
+
+        function saveKey(value) {
+            try {
+                if (value) sessionStorage.setItem("adminKey", value);
+                else sessionStorage.removeItem("adminKey");
+            } catch (err) {}
+        }
+
+        function el(tag, props, ...children) {
+            const node = document.createElement(tag);
+            for (const [name, value] of Object.entries(props || {})) {
+                if (name === "class") node.className = value;
+                else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+                else if (name in node) node[name] = value;
+                else node.setAttribute(name, value);
+            }
+            for (const child of children.flat()) {
+                if (child === null || child === undefined || child === false) continue;
+                node.append(child instanceof Node ? child : String(child));
+            }
+            return node;
+        }
+
+        let toastTimer;
+        function toast(message, isError) {
+            const box = document.getElementById("toast");
+            box.textContent = message;
+            box.className = isError ? "toast error" : "toast";
+            box.hidden = false;
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { box.hidden = true; }, isError ? 6000 : 3000);
+        }
+
+        async function api(path, options = {}) {
+            const headers = { "x-admin-key": state.key };
+            if (options.body) headers["Content-Type"] = "application/json";
+            const response = await fetch(`/admin/api${path}`, {
+                method: options.method || "GET",
+                headers,
+                body: options.body ? JSON.stringify(options.body) : undefined,
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.status === 401) {
+                signOut();
+                throw new Error("Invalid admin key");
+            }
+            if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+            return data;
+        }
+
+        async function run(button, busyText, action) {
+            const text = button.textContent;
+            button.disabled = true;
+            button.textContent = busyText;
+            try {
+                await action();
+            } catch (err) {
+                toast(err.message, true);
+            } finally {
+                button.disabled = false;
+                button.textContent = text;
+            }
+        }
+
+        function formatDate(value) {
+            return value ? new Date(value).toLocaleString() : "";
+        }
+
+        function readFileBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result).split(",")[1]);
+                reader.onerror = () => reject(new Error("Could not read the file"));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function showLogin(message) {
+            document.getElementById("app").hidden = true;
+            document.getElementById("login").hidden = false;
+            document.getElementById("login-error").textContent = message || "";
+            document.getElementById("login-key").focus();
+        }
+
+        function signOut() {
+            state.key = "";
+            saveKey("");
+            showLogin("");
+        }
+
+        async function signIn(key) {
+            state.key = key;
+            try {
+                state.sites = await api("/sites");
+            } catch (err) {
+                showLogin(err.message);
+                return;
+            }
+            saveKey(key);
+            document.getElementById("login").hidden = true;
+            document.getElementById("app").hidden = false;
+            renderSiteList();
+            if (state.sites.length) openSite(state.sites[0].id);
+            else showNewSite();
+        }
+
+        async function reloadSites() {
+            state.sites = await api("/sites");
+            renderSiteList();
+        }
+
+        function renderSiteList() {
+            const list = document.getElementById("site-list");
+            list.replaceChildren(...state.sites.map((site) =>
+                el("li", { class: site.id === state.currentId ? "active" : "", onclick: () => openSite(site.id) },
+                    site.name,
+                    el("small", {}, site.wpUrl.replace(/^https?:\/\//, ""))
+                )
+            ));
+            if (!state.sites.length) list.append(el("li", { class: "muted" }, "No sites yet"));
+        }
+
+        function siteForm(site, submitText, onSubmit) {
+            const field = (name, label, value, extra = {}, hint = "") =>
+                el("label", {}, el("span", {}, label), el("input", { name, value: value || "", ...extra }), hint ? el("small", {}, hint) : null);
+
+            const button = el("button", { type: "submit" }, submitText);
+            const form = el("form", {},
+                el("div", { class: "grid" },
+                    field("name", "Name", site.name, { required: true }, "Shown in the chat header and used by the assistant"),
+                    field("wpUrl", "WordPress URL", site.wpUrl, { required: true, placeholder: "https://example.com" }),
+                    field("wpUser", "HTTP user", site.wpUser, { autocomplete: "off" }, "Only if the site is closed with a password"),
+                    field("wpPass", "HTTP password", "", { type: "password", autocomplete: "new-password", placeholder: site.hasPassword ? "Leave empty to keep the current password" : "" }),
+                    field("postTypes", "Post types", (site.postTypes || ["posts", "pages"]).join(", "), {}, "Comma separated, e.g. posts, pages"),
+                    field("contact", "Contact", site.contact, { placeholder: "info@example.com" }, "Suggested when the assistant does not know the answer"),
+                    field("language", "Site language", site.language, { placeholder: "English" }, "Questions are translated to this language before search. Leave empty to skip"),
+                    field("allowedOrigins", "Allowed websites", (site.allowedOrigins || []).join(", "), { placeholder: "https://example.com" }, "Where the widget may work. Comma separated, no slash at the end. Empty = everywhere")
+                ),
+                button
+            );
+            form.addEventListener("submit", (event) => {
+                event.preventDefault();
+                const values = Object.fromEntries(new FormData(form));
+                run(button, "Saving...", () => onSubmit(values));
+            });
+            return form;
+        }
+
+        function showNewSite() {
+            state.currentId = null;
+            renderSiteList();
+            content.replaceChildren(
+                el("div", { class: "card" },
+                    el("h2", {}, "Add a site"),
+                    siteForm({}, "Create site", async (values) => {
+                        const site = await api("/sites", { method: "POST", body: values });
+                        await reloadSites();
+                        toast("Site created. Now press Sync to load its content.");
+                        openSite(site.id);
+                    })
+                )
+            );
+        }
+
+        async function openSite(id) {
+            state.currentId = id;
+            renderSiteList();
+            content.replaceChildren(el("div", { class: "card muted" }, "Loading..."));
+            let site;
+            try {
+                site = await api(`/sites/${encodeURIComponent(id)}`);
+            } catch (err) {
+                content.replaceChildren(el("div", { class: "card error" }, err.message));
+                return;
+            }
+            if (state.currentId !== id) return;
+            content.replaceChildren(
+                overviewCard(site),
+                widgetCard(site),
+                documentsCard(site),
+                testCard(site),
+                el("div", { class: "card" }, el("h2", {}, "Settings"), siteForm(site, "Save settings", async (values) => {
+                    await api(`/sites/${encodeURIComponent(site.id)}`, { method: "PUT", body: values });
+                    await reloadSites();
+                    toast("Settings saved");
+                    openSite(site.id);
+                })),
+                dangerCard(site)
+            );
+        }
+
+        function lastSyncText(site) {
+            const sync = site.lastSync;
+            if (!sync) return "Never synced";
+            if (!sync.ok) return `Last sync failed (${formatDate(sync.at)}): ${sync.error}`;
+            return `Last sync: ${formatDate(sync.at)}, ${sync.wordpress} WordPress chunks`;
+        }
+
+        function overviewCard(site) {
+            const syncButton = el("button", { type: "button" }, "Sync now");
+            syncButton.addEventListener("click", () => run(syncButton, "Syncing...", async () => {
+                const result = await api(`/sites/${encodeURIComponent(site.id)}/sync`, { method: "POST" });
+                toast(`Synced: ${result.wordpress} WordPress chunks`);
+                openSite(site.id);
+            }));
+            const failed = site.lastSync && !site.lastSync.ok;
+            return el("div", { class: "card" },
+                el("h2", {}, site.name),
+                el("div", { class: "muted" }, `${site.wpUrl}  ·  id: ${site.id}`),
+                el("div", { class: "stats" },
+                    el("div", {}, el("b", {}, site.chunks), el("span", { class: "muted" }, "chunks in the database")),
+                    el("div", {}, el("b", {}, site.documents.length), el("span", { class: "muted" }, "documents"))
+                ),
+                el("p", { class: failed ? "error" : "muted" }, lastSyncText(site)),
+                el("div", { class: "row" }, syncButton, el("span", { class: "muted" }, "Loads all posts and pages from WordPress again"))
+            );
+        }
+
+        function widgetCard(site) {
+            const code = `<script src="${location.origin}/widget.js" data-key="${site.publicKey}" defer><\/script>`;
+            const copyButton = el("button", { type: "button", class: "secondary" }, "Copy");
+            copyButton.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(code);
+                    toast("Copied");
+                } catch (err) {
+                    toast("Could not copy. Select the code and copy it manually.", true);
+                }
+            });
+            const rotateButton = el("button", { type: "button", class: "secondary" }, "New key");
+            rotateButton.addEventListener("click", () => {
+                if (!confirm("The old key will stop working. You will need to update the code on the website. Continue?")) return;
+                run(rotateButton, "...", async () => {
+                    await api(`/sites/${encodeURIComponent(site.id)}/rotate-key`, { method: "POST" });
+                    toast("New key created. Update the code on the website.");
+                    openSite(site.id);
+                });
+            });
+            return el("div", { class: "card" },
+                el("h2", {}, "Widget"),
+                el("p", { class: "muted" }, "Put this code into the footer of the website:"),
+                el("pre", {}, code),
+                el("div", { class: "row", style: "margin-top: 10px" },
+                    copyButton,
+                    el("a", { href: `/demo.html?key=${encodeURIComponent(site.publicKey)}`, target: "_blank" }, "Open demo page"),
+                    rotateButton
+                )
+            );
+        }
+
+        function documentRow(site, doc) {
+            const textBox = el("pre", { hidden: true });
+            const viewButton = el("button", { type: "button", class: "secondary" }, "View");
+            viewButton.addEventListener("click", () => {
+                if (!textBox.hidden) {
+                    textBox.hidden = true;
+                    return;
+                }
+                run(viewButton, "...", async () => {
+                    const full = await api(`/sites/${encodeURIComponent(site.id)}/documents/${encodeURIComponent(doc.id)}`);
+                    textBox.textContent = full.text;
+                    textBox.hidden = false;
+                });
+            });
+            const deleteButton = el("button", { type: "button", class: "secondary" }, "Delete");
+            deleteButton.addEventListener("click", () => {
+                if (!confirm(`Delete "${doc.title}"?`)) return;
+                run(deleteButton, "...", async () => {
+                    await api(`/sites/${encodeURIComponent(site.id)}/documents/${encodeURIComponent(doc.id)}`, { method: "DELETE" });
+                    toast("Document deleted");
+                    openSite(site.id);
+                });
+            });
+            const details = [
+                doc.type === "file" ? doc.fileName : "text",
+                `${doc.chars} characters`,
+                doc.needsIndex ? "waiting for sync" : `${doc.chunks} chunks`,
+                formatDate(doc.createdAt),
+            ].join("  ·  ");
+            return el("div", { class: "doc" },
+                el("div", { class: "row" },
+                    el("div", {}, el("b", {}, doc.title), el("div", { class: "muted" }, details)),
+                    el("div", { class: "row" }, viewButton, deleteButton)
+                ),
+                textBox
+            );
+        }
+
+        function documentsCard(site) {
+            const textTitle = el("input", { placeholder: "Title, e.g. Parking" });
+            const textBody = el("textarea", { placeholder: "Information that is not on the website" });
+            const textButton = el("button", { type: "button" }, "Add text");
+            textButton.addEventListener("click", () => run(textButton, "Adding...", async () => {
+                await api(`/sites/${encodeURIComponent(site.id)}/documents`, { method: "POST", body: { title: textTitle.value, text: textBody.value } });
+                toast("Text added");
+                openSite(site.id);
+            }));
+
+            const fileTitle = el("input", { placeholder: "Title (optional, the file name is used by default)" });
+            const fileInput = el("input", { type: "file", accept: ".pdf,.docx,.txt,.md" });
+            const fileButton = el("button", { type: "button" }, "Upload file");
+            fileButton.addEventListener("click", () => run(fileButton, "Uploading...", async () => {
+                const file = fileInput.files[0];
+                if (!file) throw new Error("Choose a file first");
+                if (file.size > MAX_FILE_BYTES) throw new Error("File is larger than 15 MB");
+                const fileBase64 = await readFileBase64(file);
+                await api(`/sites/${encodeURIComponent(site.id)}/documents`, { method: "POST", body: { title: fileTitle.value, fileName: file.name, fileBase64 } });
+                toast("File added");
+                openSite(site.id);
+            }));
+
+            return el("div", { class: "card" },
+                el("h2", {}, "Documents"),
+                el("p", { class: "muted" }, "Extra information for the assistant: rules, menus, prices, anything that is not on the website."),
+                site.documents.length ? el("div", {}, site.documents.map((doc) => documentRow(site, doc))) : el("p", { class: "muted" }, "No documents yet"),
+                el("div", { class: "grid", style: "margin-top: 16px" },
+                    el("div", {}, el("h3", {}, "Add text"), el("label", {}, textTitle), el("label", {}, textBody), textButton),
+                    el("div", {}, el("h3", {}, "Upload a file"), el("label", {}, fileTitle), el("label", {}, fileInput, el("small", {}, "PDF, DOCX, TXT or MD, up to 15 MB. Scanned PDFs do not work.")), fileButton)
+                )
+            );
+        }
+
+        function testCard(site) {
+            const searchInput = el("input", { placeholder: "Search the database, e.g. dinner" });
+            const searchButton = el("button", { type: "button", class: "secondary" }, "Search");
+            const searchResults = el("div", {});
+            searchButton.addEventListener("click", () => run(searchButton, "...", async () => {
+                const results = await api(`/sites/${encodeURIComponent(site.id)}/search?q=${encodeURIComponent(searchInput.value)}`);
+                searchResults.replaceChildren(...(results.length
+                    ? results.map((r) => el("div", { class: "result" }, el("b", {}, `${r.score.toFixed(2)}  ${r.title}`), el("div", { class: "muted" }, r.text.slice(0, 300))))
+                    : [el("p", { class: "muted" }, "Nothing found")]));
+            }));
+
+            const askInput = el("input", { placeholder: "Ask like a visitor, e.g. How much is dinner?" });
+            const askButton = el("button", { type: "button" }, "Ask");
+            const answerBox = el("div", {});
+            askButton.addEventListener("click", () => run(askButton, "Thinking...", async () => {
+                const response = await fetch("/ask", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ key: site.publicKey, question: askInput.value }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || "Request failed");
+                answerBox.replaceChildren(el("div", { class: "answer" },
+                    data.answer,
+                    (data.sources || []).map((url) => el("a", { href: url, target: "_blank", rel: "noopener" }, url))
+                ));
+            }));
+
+            return el("div", { class: "card" },
+                el("h2", {}, "Test"),
+                el("h3", {}, "Search"),
+                el("div", { class: "row" }, el("div", { style: "flex: 1" }, searchInput), searchButton),
+                searchResults,
+                el("h3", { style: "margin-top: 16px" }, "Chat"),
+                el("div", { class: "row" }, el("div", { style: "flex: 1" }, askInput), askButton),
+                answerBox
+            );
+        }
+
+        function dangerCard(site) {
+            const deleteButton = el("button", { type: "button", class: "danger" }, "Delete site");
+            deleteButton.addEventListener("click", () => {
+                if (prompt(`This deletes the site, its database and documents. Type "${site.id}" to confirm.`) !== site.id) return;
+                run(deleteButton, "Deleting...", async () => {
+                    await api(`/sites/${encodeURIComponent(site.id)}`, { method: "DELETE" });
+                    await reloadSites();
+                    toast("Site deleted");
+                    if (state.sites.length) openSite(state.sites[0].id);
+                    else showNewSite();
+                });
+            });
+            return el("div", { class: "card" },
+                el("h2", {}, "Danger zone"),
+                el("div", { class: "row" }, deleteButton, el("span", { class: "muted" }, "The widget on the website will stop working"))
+            );
+        }
+
+        document.getElementById("login-form").addEventListener("submit", (event) => {
+            event.preventDefault();
+            signIn(document.getElementById("login-key").value.trim());
+        });
+        document.getElementById("logout").addEventListener("click", signOut);
+        document.getElementById("new-site").addEventListener("click", showNewSite);
+
+        const savedKey = readKey();
+        if (savedKey) signIn(savedKey);
+        else showLogin("");
+    </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import express from "express";
 import { config } from "./config.js";
-import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, publicView } from "./store.js";
+import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, rotatePublicKey, publicView } from "./store.js";
 import { syncSite } from "./wordpress.js";
 import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
@@ -59,6 +59,10 @@ admin.delete("/sites/:id", handle(async (req, res) => {
     deleteSiteDocuments(site.id);
     deleteSite(site.id);
     res.json({ ok: true });
+}));
+
+admin.post("/sites/:id/rotate-key", handle(async (req, res) => {
+    res.json(publicView(rotatePublicKey(req.params.id)));
 }));
 
 admin.post("/sites/:id/sync", handle(async (req, res) => {
