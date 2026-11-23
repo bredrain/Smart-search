@@ -66,8 +66,28 @@ function removeElements(html, tags) {
     return result;
 }
 
-export function extractPage(html, selectors) {
-    const clean = stripInvisible(html);
+function removeMatching(html, selectors) {
+    let result = html;
+    for (const selector of String(selectors || "").split(",")) {
+        const rule = parseSelector(selector);
+        if (!rule) continue;
+        const pattern = /<([a-z][\w-]*)(\s[^>]*)?>/gi;
+        let match;
+        while ((match = pattern.exec(result))) {
+            const tag = match[1].toLowerCase();
+            if (!matches(tag, match[2] || "", rule)) continue;
+            const end = match[0].endsWith("/>")
+                ? match.index + match[0].length
+                : closingIndex(result, tag, match.index + match[0].length).end;
+            result = `${result.slice(0, match.index)} ${result.slice(end)}`;
+            pattern.lastIndex = match.index;
+        }
+    }
+    return result;
+}
+
+export function extractPage(html, selectors, removeSelectors) {
+    const clean = removeMatching(stripInvisible(html), removeSelectors);
     for (const selector of String(selectors || "").split(",")) {
         const rule = parseSelector(selector);
         if (!rule) continue;

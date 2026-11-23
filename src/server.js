@@ -92,7 +92,8 @@ admin.get("/sites/:id/preview", handle(async (req, res) => {
         throw httpError(400, "The page must be on the website of this site");
     }
     const selector = req.query.selector === undefined ? site.contentSelector : String(req.query.selector);
-    res.json(extractPage(await fetchHtml(site, target.href), selector));
+    const remove = req.query.remove === undefined ? site.removeSelectors : String(req.query.remove);
+    res.json(extractPage(await fetchHtml(site, target.href), selector, remove));
 }));
 
 admin.get("/sites/:id/documents", handle(async (req, res) => {

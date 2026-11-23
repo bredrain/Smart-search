@@ -236,6 +236,7 @@
                     field("language", "Site language", site.language, { placeholder: "English" }, "For single-language sites: questions are translated to this language before search. Leave empty to skip"),
                     field("languages", "Languages (WPML)", (site.languages || []).join(", "), { placeholder: "de, en" }, "For multilingual sites: language codes, the main language first. Each language is loaded separately"),
                     field("contentSelector", "Content area", site.contentSelector || "main", {}, "Which part of a page is loaded, as a CSS selector: main, #content, .page-content. Several separated by commas, the first one found is used. Check it with Page preview in Test"),
+                    field("removeSelectors", "Remove from content", site.removeSelectors, { placeholder: ".booking-bar, .slick-cloned" }, "Blocks to cut out of every page, as CSS selectors separated by commas: booking widgets, sliders, cookie banners"),
                     field("allowedOrigins", "Allowed websites", (site.allowedOrigins || []).join(", "), { placeholder: "https://example.com" }, "Where the widget may work. Comma separated, no slash at the end. Empty = everywhere")
                 ),
                 button
@@ -454,11 +455,12 @@
             }));
 
             const previewUrl = el("input", { placeholder: `Page address, e.g. ${site.wpUrl}/contact/` });
-            const previewSelector = el("input", { value: site.contentSelector || "main", style: "width: 200px" });
+            const previewSelector = el("input", { value: site.contentSelector || "main", style: "width: 160px", title: "Content area" });
+            const previewRemove = el("input", { value: site.removeSelectors || "", placeholder: "Remove from content", style: "width: 200px", title: "Remove from content" });
             const previewButton = el("button", { type: "button", class: "secondary" }, "Preview");
             const previewBox = el("div", {});
             previewButton.addEventListener("click", () => run(previewButton, "...", async () => {
-                const result = await api(`/sites/${encodeURIComponent(site.id)}/preview?url=${encodeURIComponent(previewUrl.value.trim())}&selector=${encodeURIComponent(previewSelector.value)}`);
+                const result = await api(`/sites/${encodeURIComponent(site.id)}/preview?url=${encodeURIComponent(previewUrl.value.trim())}&selector=${encodeURIComponent(previewSelector.value)}&remove=${encodeURIComponent(previewRemove.value)}`);
                 const note = result.matched === "body"
                     ? "The selector was not found, the whole page was used (without header, menu and footer)"
                     : `Found: ${result.matched}`;
@@ -472,7 +474,7 @@
                 el("h2", {}, "Test"),
                 el("h3", {}, "Page preview"),
                 el("p", { class: "muted" }, "Shows the text that will be loaded from a page. Use it to choose the Content area selector."),
-                el("div", { class: "row" }, el("div", { style: "flex: 1" }, previewUrl), previewSelector, previewButton),
+                el("div", { class: "row" }, el("div", { style: "flex: 1" }, previewUrl), previewSelector, previewRemove, previewButton),
                 previewBox,
                 el("div", { style: "margin-top: 16px" }, langPicker),
                 el("h3", { style: "margin-top: 12px" }, "Search"),
