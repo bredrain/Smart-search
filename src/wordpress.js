@@ -1,5 +1,5 @@
 import { htmlToText, chunkText } from "./text.js";
-import { replaceChunks } from "./vectors.js";
+import { replaceChunks, deleteLegacyChunks } from "./vectors.js";
 import { setSyncResult } from "./store.js";
 import { indexPendingDocuments } from "./documents.js";
 import { httpError } from "./errors.js";
@@ -65,6 +65,7 @@ export async function syncSite(site) {
     syncing.add(site.id);
     try {
         const wordpress = await replaceChunks(site.collection, { source: "wp" }, await getWordPressChunks(site));
+        await deleteLegacyChunks(site.collection);
         const documents = await indexPendingDocuments(site);
         setSyncResult(site.id, { ok: true, wordpress, documents });
         console.log(`Sync finished for ${site.id}: ${wordpress} WordPress chunks, ${documents} documents indexed`);

@@ -28,7 +28,7 @@ export function htmlToText(html) {
         .trim();
 }
 
-export function chunkText(text, maxChars = 1000) {
+export function chunkText(text, maxChars = 500) {
     const paragraphs = String(text || "").split(/\n+/).map((p) => p.trim()).filter(Boolean);
     const parts = [];
     for (const paragraph of paragraphs) {

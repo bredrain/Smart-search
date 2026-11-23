@@ -2,7 +2,7 @@ import { config, openai } from "./config.js";
 import { embed, search } from "./vectors.js";
 
 const TOP_K = 5;
-const MIN_SCORE = 0.3;
+const MIN_SCORE = 0.2;
 
 function pickLanguage(site, lang) {
     if (site.languages.length === 0) return "";
@@ -26,14 +26,14 @@ async function toSearchQuery(site, question, target) {
     return completion.choices[0].message.content.trim();
 }
 
-export async function findChunks(site, question, lang) {
+export async function findChunks(site, question, lang, minScore = MIN_SCORE) {
     const target = pickLanguage(site, lang);
     const [vector] = await embed(await toSearchQuery(site, question, target));
     const filter = target
         ? { should: [{ key: "lang", match: { value: target } }, { is_empty: { key: "lang" } }] }
         : undefined;
     const results = await search(site.collection, vector, TOP_K, filter);
-    return results.filter((r) => r.score >= MIN_SCORE);
+        return results.filter((r) => r.score >= minScore);
 }
 
 function instructions(site, materials) {

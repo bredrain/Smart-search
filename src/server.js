@@ -75,7 +75,7 @@ admin.post("/sites/:id/sync", handle(async (req, res) => {
 
 admin.get("/sites/:id/search", handle(async (req, res) => {
     const site = requireSite(req.params.id);
-        const found = await findChunks(site, String(req.query.q || ""), String(req.query.lang || ""));
+        const found = await findChunks(site, String(req.query.q || ""), String(req.query.lang || ""), 0);
     res.json(found.map((r) => ({ score: r.score, title: r.payload.title, lang: r.payload.lang || "", url: r.payload.url, text: r.payload.text })));
 }));
 

@@ -90,3 +90,13 @@ export async function search(collection, vector, limit, filter) {
     const result = await qdrant.query(collection, { query: vector, limit, filter, with_payload: true });
     return result.points;
 }
+
+export async function deleteLegacyChunks(collection) {
+    const { exists } = await qdrant.collectionExists(collection);
+    if (!exists) return;
+    await ensureIndexes(collection);
+    await qdrant.delete(collection, {
+        wait: true,
+        filter: { must: [{ is_empty: { key: "source" } }] },
+    });
+}
