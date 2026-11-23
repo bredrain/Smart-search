@@ -44,12 +44,18 @@ export function checkPageUpdate(site, input) {
     return { action: "upsert", key, url: url.href, title: String(input.title || ""), html };
 }
 
+function freshUrl(url) {
+    const fresh = new URL(url);
+    fresh.searchParams.set("_ss", String(Date.now()));
+    return fresh.href;
+}
+
 export async function applyPageUpdate(site, update) {
     if (update.action === "delete") {
         await deleteWhere(site.collection, conditions(update.key));
         return 0;
     }
-    const html = update.html ?? (await fetchHtml(site, update.url));
+    const html = update.html ?? (await fetchHtml(site, freshUrl(update.url)));
     const chunks = pageToChunks(site, { id: update.key.id, url: update.url, title: update.title, lang: update.key.lang, html });
     return replaceChunks(site.collection, conditions(update.key), chunks);
 }
