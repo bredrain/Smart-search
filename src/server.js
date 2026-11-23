@@ -1,8 +1,9 @@
 import express from "express";
 import { config } from "./config.js";
-import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, rotatePublicKey, publicView } from "./store.js";
+import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, rotatePublicKey, rotateHookSecret, publicView } from "./store.js";
 import { syncSite, fetchHtml } from "./wordpress.js";
 import { extractPage } from "./html.js";
+import { checkPageUpdate, applyPageUpdate } from "./hooks.js";
 import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
 import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText } from "./documents.js";
@@ -12,6 +13,7 @@ import { httpError } from "./errors.js";
 const server = express();
 server.set("trust proxy", 1);
 server.use("/admin/api", express.json({ limit: "25mb" }));
+server.use("/hooks", express.json({ limit: "10mb" }));
 server.use(express.json());
 server.use(express.static("public"));
 
@@ -67,6 +69,10 @@ admin.delete("/sites/:id", handle(async (req, res) => {
 
 admin.post("/sites/:id/rotate-key", handle(async (req, res) => {
     res.json(publicView(rotatePublicKey(req.params.id)));
+}));
+
+admin.post("/sites/:id/rotate-secret", handle(async (req, res) => {
+    res.json(publicView(rotateHookSecret(req.params.id)));
 }));
 
 admin.post("/sites/:id/sync", handle(async (req, res) => {
@@ -158,6 +164,20 @@ server.post("/ask", handle(async (req, res) => {
     }
     checkLimits(site.id, req.ip);
     res.json(await answer(site, question, String(req.body?.lang || "")));
+}));
+
+server.post("/hooks/pages/:id", handle(async (req, res) => {
+    const site = requireSite(req.params.id);
+    const secret = req.get("x-hook-secret");
+    if (!secret || secret !== site.hookSecret) {
+        throw httpError(401, "Invalid hook secret");
+    }
+    const update = checkPageUpdate(site, req.body || {});
+    const label = `Page ${update.key.id}${update.key.lang ? ` (${update.key.lang})` : ""} on ${site.id}`;
+    applyPageUpdate(site, update)
+        .then((count) => console.log(`${label}: ${update.action === "delete" ? "deleted" : `${count} chunks`}`))
+        .catch((err) => console.error(`${label} failed:`, err.message));
+    res.status(202).json({ ok: true });
 }));
 
 async function syncAll() {

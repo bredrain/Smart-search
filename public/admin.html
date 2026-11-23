@@ -280,6 +280,7 @@
             content.replaceChildren(
                 overviewCard(site),
                 widgetCard(site),
+                connectionCard(site),
                 documentsCard(site),
                 testCard(site),
                 el("div", { class: "card" }, el("h2", {}, "Settings"), siteForm(site, "Save settings", async (values) => {
@@ -349,6 +350,37 @@
                     el("a", { href: `/demo.html?key=${encodeURIComponent(site.publicKey)}`, target: "_blank" }, "Open demo page"),
                     rotateButton
                 )
+            );
+        }
+
+        function connectionCard(site) {
+            const endpoint = `${location.origin}/hooks/pages/${site.id}`;
+            const example = JSON.stringify({
+                action: "upsert",
+                id: "15",
+                lang: site.languages[0] || undefined,
+                url: `${site.wpUrl}/example-page/`,
+                title: "Example page",
+                html: "<html>...</html>",
+            }, null, 2);
+            const secretButton = el("button", { type: "button", class: "secondary" }, "New secret");
+            secretButton.addEventListener("click", () => {
+                if (!confirm("The old secret will stop working. You will need to update it in the CMS plugin. Continue?")) return;
+                run(secretButton, "...", async () => {
+                    await api(`/sites/${encodeURIComponent(site.id)}/rotate-secret`, { method: "POST" });
+                    toast("New secret created. Update it in the CMS plugin.");
+                    openSite(site.id);
+                });
+            });
+            const line = (label, value) => el("div", { class: "row", style: "margin-bottom: 6px" }, el("b", { style: "width: 110px" }, label), el("code", {}, value));
+            return el("div", { class: "card" },
+                el("h2", {}, "CMS connection"),
+                el("p", { class: "muted" }, "A CMS plugin sends a page here when it is saved or deleted. Only this page is updated in the database."),
+                line("Endpoint", `POST ${endpoint}`),
+                line("Header", `x-hook-secret: ${site.hookSecret}`),
+                el("p", { class: "muted", style: "margin: 10px 0 6px" }, 'Body for a saved page (without "html" the service opens the url itself). For a deleted page: { "action": "delete", "id": "15" }'),
+                el("pre", {}, example),
+                el("div", { class: "row", style: "margin-top: 10px" }, secretButton)
             );
         }
 

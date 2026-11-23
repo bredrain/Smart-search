@@ -11,6 +11,7 @@ const LISTS = ["postTypes", "languages", "allowedOrigins"];
 let sites = load();
 addFirstSiteFromEnv();
 moveExtraFiles();
+addMissingSecrets();
 
 function load() {
     if (!fs.existsSync(FILE)) return [];
@@ -106,6 +107,18 @@ function moveExtraFiles() {
     if (changed) save();
 }
 
+function newSecret() {
+    return crypto.randomBytes(24).toString("hex");
+}
+
+function addMissingSecrets() {
+    const missing = sites.filter((site) => !site.hookSecret);
+    for (const site of missing) {
+        site.hookSecret = newSecret();
+    }
+    if (missing.length) save();
+}
+
 export function listSites() {
     return sites;
 }
@@ -131,6 +144,7 @@ export function createSite(input) {
     site.id = makeId(site.name);
     site.collection = `site_${site.id.replace(/-/g, "_")}`;
     site.publicKey = crypto.randomBytes(16).toString("hex");
+    site.hookSecret = newSecret();
     site.documents = [];
     site.createdAt = new Date().toISOString();
     sites.push(site);
@@ -144,6 +158,13 @@ export function updateSite(id, input) {
     sites[index] = clean(input, sites[index]);
     save();
     return sites[index];
+}
+
+export function rotateHookSecret(id) {
+    const site = requireSite(id);
+    site.hookSecret = newSecret();
+    save();
+    return site;
 }
 
 export function rotatePublicKey(id) {
