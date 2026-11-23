@@ -235,6 +235,7 @@
                     field("contact", "Contact", site.contact, { placeholder: "info@example.com" }, "Suggested when the assistant does not know the answer"),
                     field("language", "Site language", site.language, { placeholder: "English" }, "For single-language sites: questions are translated to this language before search. Leave empty to skip"),
                     field("languages", "Languages (WPML)", (site.languages || []).join(", "), { placeholder: "de, en" }, "For multilingual sites: language codes, the main language first. Each language is loaded separately"),
+                    field("contentSelector", "Content area", site.contentSelector || "main", {}, "Which part of a page is loaded, as a CSS selector: main, #content, .page-content. Several separated by commas, the first one found is used. Check it with Page preview in Test"),
                     field("allowedOrigins", "Allowed websites", (site.allowedOrigins || []).join(", "), { placeholder: "https://example.com" }, "Where the widget may work. Comma separated, no slash at the end. Empty = everywhere")
                 ),
                 button
@@ -294,14 +295,15 @@
             const sync = site.lastSync;
             if (!sync) return "Never synced";
             if (!sync.ok) return `Last sync failed (${formatDate(sync.at)}): ${sync.error}`;
-            return `Last sync: ${formatDate(sync.at)}, ${sync.wordpress} WordPress chunks`;
+            const failed = sync.failed ? `, ${sync.failed} pages could not be opened` : "";
+            return `Last sync: ${formatDate(sync.at)}, ${sync.pages ?? "?"} pages, ${sync.wordpress} chunks${failed}`;
         }
 
         function overviewCard(site) {
             const syncButton = el("button", { type: "button" }, "Sync now");
             syncButton.addEventListener("click", () => run(syncButton, "Syncing...", async () => {
                 const result = await api(`/sites/${encodeURIComponent(site.id)}/sync`, { method: "POST" });
-                toast(`Synced: ${result.wordpress} WordPress chunks`);
+                toast(`Synced: ${result.pages} pages, ${result.wordpress} chunks`);
                 openSite(site.id);
             }));
             const failed = site.lastSync && !site.lastSync.ok;
@@ -451,10 +453,29 @@
                 ));
             }));
 
+            const previewUrl = el("input", { placeholder: `Page address, e.g. ${site.wpUrl}/contact/` });
+            const previewSelector = el("input", { value: site.contentSelector || "main", style: "width: 200px" });
+            const previewButton = el("button", { type: "button", class: "secondary" }, "Preview");
+            const previewBox = el("div", {});
+            previewButton.addEventListener("click", () => run(previewButton, "...", async () => {
+                const result = await api(`/sites/${encodeURIComponent(site.id)}/preview?url=${encodeURIComponent(previewUrl.value.trim())}&selector=${encodeURIComponent(previewSelector.value)}`);
+                const note = result.matched === "body"
+                    ? "The selector was not found, the whole page was used (without header, menu and footer)"
+                    : `Found: ${result.matched}`;
+                previewBox.replaceChildren(
+                    el("p", { class: result.matched === "body" ? "error" : "muted" }, `${note}  ·  ${result.text.length} characters`),
+                    el("pre", { style: "max-height: 300px; overflow: auto" }, result.text || "(no text)")
+                );
+            }));
+
             return el("div", { class: "card" },
                 el("h2", {}, "Test"),
-                langPicker,
-                el("h3", {}, "Search"),
+                el("h3", {}, "Page preview"),
+                el("p", { class: "muted" }, "Shows the text that will be loaded from a page. Use it to choose the Content area selector."),
+                el("div", { class: "row" }, el("div", { style: "flex: 1" }, previewUrl), previewSelector, previewButton),
+                previewBox,
+                el("div", { style: "margin-top: 16px" }, langPicker),
+                el("h3", { style: "margin-top: 12px" }, "Search"),
                 el("div", { class: "row" }, el("div", { style: "flex: 1" }, searchInput), searchButton),
                 searchResults,
                 el("h3", { style: "margin-top: 16px" }, "Chat"),

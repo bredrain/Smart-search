@@ -1,13 +1,14 @@
-import { htmlToText, chunkText } from "./text.js";
-import { replaceChunks, deleteLegacyChunks } from "./vectors.js";
+import { replaceChunks, deleteWhere, deleteLegacyChunks } from "./vectors.js";
 import { setSyncResult } from "./store.js";
 import { indexPendingDocuments } from "./documents.js";
+import { pageToChunks } from "./pages.js";
 import { httpError } from "./errors.js";
 
+const PARALLEL_PAGES = 4;
 const syncing = new Set();
 
-function headers(site) {
-    const result = { Accept: "application/json" };
+function headers(site, accept) {
+    const result = { Accept: accept };
     if (site.wpUser) {
         const token = Buffer.from(`${site.wpUser}:${site.wpPass}`).toString("base64");
         result.Authorization = `Basic ${token}`;
@@ -15,14 +16,14 @@ function headers(site) {
     return result;
 }
 
-async function fetchAll(site, postType, lang) {
+async function listItems(site, postType, lang) {
     const items = [];
     let page = 1;
     let totalPages = 1;
     while (page <= totalPages) {
         const language = lang ? `&lang=${encodeURIComponent(lang)}` : "";
-        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}${language}`;
-        const response = await fetch(url, { headers: headers(site) });
+        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}&_fields=id,link,title${language}`;
+        const response = await fetch(url, { headers: headers(site, "application/json") });
         if (!response.ok) {
             throw new Error(`WordPress responded ${response.status} for ${url}`);
         }
@@ -33,29 +34,54 @@ async function fetchAll(site, postType, lang) {
     return items;
 }
 
-function itemToChunks(item, postType, lang) {
-    const title = htmlToText(item.title?.rendered);
-    const text = htmlToText(item.content?.rendered);
-    return chunkText(text)
-        .filter((piece) => piece.length >= 50)
-        .map((piece) => ({
-            text: piece,
-            embedText: `${title}\n${piece}`,
-            payload: { source: "wp", title, url: item.link, postId: item.id, postType, ...(lang ? { lang } : {}) },
-        }));
+export async function fetchHtml(site, url) {
+    let response;
+    try {
+        response = await fetch(url, { headers: headers(site, "text/html") });
+    } catch (err) {
+        throw httpError(502, `Could not open ${url}: ${err.message}`);
+    }
+    if (!response.ok) {
+        throw httpError(502, `Page responded ${response.status} for ${url}`);
+    }
+    return response.text();
 }
 
-export async function getWordPressChunks(site) {
+async function mapLimit(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    async function worker() {
+        while (next < items.length) {
+            const index = next;
+            next += 1;
+            results[index] = await fn(items[index]);
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+}
+
+async function getPageChunks(site) {
     const languages = site.languages.length ? site.languages : [""];
-    const chunks = [];
+    const pages = [];
     for (const lang of languages) {
         for (const postType of site.postTypes) {
-            for (const item of await fetchAll(site, postType, lang)) {
-                chunks.push(...itemToChunks(item, postType, lang));
+            for (const item of await listItems(site, postType, lang)) {
+                pages.push({ id: item.id, url: item.link, title: item.title?.rendered, lang });
             }
         }
     }
-    return chunks;
+    const failed = [];
+    const results = await mapLimit(pages, PARALLEL_PAGES, async (page) => {
+        try {
+            return pageToChunks(site, { ...page, html: await fetchHtml(site, page.url) });
+        } catch (err) {
+            failed.push(page.url);
+            console.error(err.message);
+            return [];
+        }
+    });
+    return { pages: pages.length, failed, chunks: results.flat() };
 }
 
 export async function syncSite(site) {
@@ -64,12 +90,17 @@ export async function syncSite(site) {
     }
     syncing.add(site.id);
     try {
-        const wordpress = await replaceChunks(site.collection, { source: "wp" }, await getWordPressChunks(site));
+        const { pages, failed, chunks } = await getPageChunks(site);
+        if (pages > 0 && failed.length === pages) {
+            throw new Error(`Could not open any page, for example ${failed[0]}`);
+        }
+        const wordpress = await replaceChunks(site.collection, { source: "page" }, chunks);
+        await deleteWhere(site.collection, { source: "wp" });
         await deleteLegacyChunks(site.collection);
         const documents = await indexPendingDocuments(site);
-        setSyncResult(site.id, { ok: true, wordpress, documents });
-        console.log(`Sync finished for ${site.id}: ${wordpress} WordPress chunks, ${documents} documents indexed`);
-        return { wordpress, documents };
+        setSyncResult(site.id, { ok: true, pages, failed: failed.length, wordpress, documents });
+        console.log(`Sync finished for ${site.id}: ${pages} pages, ${failed.length} failed, ${wordpress} chunks, ${documents} documents indexed`);
+        return { pages, failed: failed.length, wordpress, documents };
     } catch (err) {
         setSyncResult(site.id, { ok: false, error: err.message });
         throw err;

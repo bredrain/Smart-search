@@ -17,7 +17,7 @@ export async function embed(texts) {
     return vectors;
 }
 
-const INDEXES = [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"], ["lang", "keyword"]];
+const INDEXES = [["source", "keyword"], ["docId", "keyword"], ["postId", "integer"], ["lang", "keyword"], ["pageId", "keyword"]];
 const indexed = new Set();
 
 async function ensureIndexes(collection) {

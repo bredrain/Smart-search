@@ -1,7 +1,8 @@
 import express from "express";
 import { config } from "./config.js";
 import { listSites, requireSite, requireSiteByKey, requireDocument, createSite, updateSite, deleteSite, rotatePublicKey, publicView } from "./store.js";
-import { syncSite } from "./wordpress.js";
+import { syncSite, fetchHtml } from "./wordpress.js";
+import { extractPage } from "./html.js";
 import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
 import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText } from "./documents.js";
@@ -77,6 +78,21 @@ admin.get("/sites/:id/search", handle(async (req, res) => {
     const site = requireSite(req.params.id);
         const found = await findChunks(site, String(req.query.q || ""), String(req.query.lang || ""), 0);
     res.json(found.map((r) => ({ score: r.score, title: r.payload.title, lang: r.payload.lang || "", url: r.payload.url, text: r.payload.text })));
+}));
+
+admin.get("/sites/:id/preview", handle(async (req, res) => {
+    const site = requireSite(req.params.id);
+    let target;
+    try {
+        target = new URL(String(req.query.url || ""));
+    } catch (err) {
+        throw httpError(400, "Enter the full page address, starting with https://");
+    }
+    if (target.origin !== new URL(site.wpUrl).origin) {
+        throw httpError(400, "The page must be on the website of this site");
+    }
+    const selector = req.query.selector === undefined ? site.contentSelector : String(req.query.selector);
+    res.json(extractPage(await fetchHtml(site, target.href), selector));
 }));
 
 admin.get("/sites/:id/documents", handle(async (req, res) => {
