@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Smart Search
  * Description: Sends pages to the Smart Search service when they are saved or deleted, so the chat always knows the current content.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) {
 
 const SMART_SEARCH_OPTION = 'smart_search_options';
 const SMART_SEARCH_LAST = 'smart_search_last';
+const SMART_SEARCH_EXCLUDE = '_smart_search_exclude';
 
 function smart_search_options()
 {
@@ -74,6 +75,11 @@ function smart_search_post_language($post)
     return '';
 }
 
+function smart_search_is_excluded($post_id)
+{
+    return (bool) get_post_meta($post_id, SMART_SEARCH_EXCLUDE, true);
+}
+
 function smart_search_notify($action, $post)
 {
     if (!in_array($post->post_type, smart_search_post_types(), true)) {
@@ -106,8 +112,45 @@ add_action('wp_after_insert_post', function ($post_id, $post) {
     if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || $post->post_status === 'auto-draft') {
         return;
     }
-    smart_search_notify($post->post_status === 'publish' ? 'upsert' : 'delete', $post);
+    $visible = $post->post_status === 'publish' && !smart_search_is_excluded($post_id);
+    smart_search_notify($visible ? 'upsert' : 'delete', $post);
 }, 10, 2);
+
+add_action('add_meta_boxes', function () {
+    add_meta_box('smart-search', 'Smart Search', 'smart_search_meta_box', smart_search_post_types(), 'side');
+});
+
+function smart_search_meta_box($post)
+{
+    wp_nonce_field('smart_search_exclude', 'smart_search_nonce');
+    echo '<label><input type="checkbox" name="smart_search_exclude" value="1"' . checked(smart_search_is_excluded($post->ID), true, false) . '> Exclude from chat</label>';
+    echo '<p class="description">The chat will not use this page. The page stays on the website.</p>';
+}
+
+add_action('save_post', function ($post_id) {
+    if (!isset($_POST['smart_search_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['smart_search_nonce'])), 'smart_search_exclude')) {
+        return;
+    }
+    if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id) || !current_user_can('edit_post', $post_id)) {
+        return;
+    }
+    if (empty($_POST['smart_search_exclude'])) {
+        delete_post_meta($post_id, SMART_SEARCH_EXCLUDE);
+    } else {
+        update_post_meta($post_id, SMART_SEARCH_EXCLUDE, '1');
+    }
+});
+
+add_action('rest_api_init', function () {
+    foreach (smart_search_post_types() as $type) {
+        register_rest_field($type, 'smart_search_exclude', [
+            'get_callback' => function ($item) {
+                return smart_search_is_excluded($item['id']);
+            },
+            'schema' => ['type' => 'boolean', 'context' => ['view'], 'readonly' => true],
+        ]);
+    }
+});
 
 add_action('trashed_post', function ($post_id) {
     $post = get_post($post_id);

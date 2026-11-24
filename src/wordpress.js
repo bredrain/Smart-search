@@ -22,7 +22,7 @@ async function listItems(site, postType, lang) {
     let totalPages = 1;
     while (page <= totalPages) {
         const language = lang ? `&lang=${encodeURIComponent(lang)}` : "";
-        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}&_fields=id,link,title${language}`;
+        const url = `${site.wpUrl}/wp-json/wp/v2/${postType}?per_page=100&page=${page}&_fields=id,link,title,smart_search_exclude${language}`;
         const response = await fetch(url, { headers: headers(site, "application/json") });
         if (!response.ok) {
             throw new Error(`WordPress responded ${response.status} for ${url}`);
@@ -64,9 +64,14 @@ async function mapLimit(items, limit, fn) {
 async function getPageChunks(site) {
     const languages = site.languages.length ? site.languages : [""];
     const pages = [];
+    let excluded = 0;
     for (const lang of languages) {
         for (const postType of site.postTypes) {
             for (const item of await listItems(site, postType, lang)) {
+                if (item.smart_search_exclude) {
+                    excluded += 1;
+                    continue;
+                }
                 pages.push({ id: item.id, url: item.link, title: item.title?.rendered, lang });
             }
         }
@@ -81,7 +86,7 @@ async function getPageChunks(site) {
             return [];
         }
     });
-    return { pages: pages.length, failed, chunks: results.flat() };
+    return { pages: pages.length, excluded, failed, chunks: results.flat() };
 }
 
 export async function syncSite(site) {
@@ -90,7 +95,7 @@ export async function syncSite(site) {
     }
     syncing.add(site.id);
     try {
-        const { pages, failed, chunks } = await getPageChunks(site);
+        const { pages, excluded, failed, chunks } = await getPageChunks(site);
         if (pages > 0 && failed.length === pages) {
             throw new Error(`Could not open any page, for example ${failed[0]}`);
         }
@@ -98,9 +103,9 @@ export async function syncSite(site) {
         await deleteWhere(site.collection, { source: "wp" });
         await deleteLegacyChunks(site.collection);
         const documents = await indexPendingDocuments(site);
-        setSyncResult(site.id, { ok: true, pages, failed: failed.length, wordpress, documents });
-        console.log(`Sync finished for ${site.id}: ${pages} pages, ${failed.length} failed, ${wordpress} chunks, ${documents} documents indexed`);
-        return { pages, failed: failed.length, wordpress, documents };
+        setSyncResult(site.id, { ok: true, pages, excluded, failed: failed.length, wordpress, documents });
+        console.log(`Sync finished for ${site.id}: ${pages} pages, ${excluded} excluded, ${failed.length} failed, ${wordpress} chunks, ${documents} documents indexed`);
+        return { pages, excluded, failed: failed.length, wordpress, documents };
     } catch (err) {
         setSyncResult(site.id, { ok: false, error: err.message });
         throw err;

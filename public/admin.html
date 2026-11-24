@@ -297,8 +297,9 @@
             const sync = site.lastSync;
             if (!sync) return "Never synced";
             if (!sync.ok) return `Last sync failed (${formatDate(sync.at)}): ${sync.error}`;
+            const excluded = sync.excluded ? `, ${sync.excluded} excluded` : "";
             const failed = sync.failed ? `, ${sync.failed} pages could not be opened` : "";
-            return `Last sync: ${formatDate(sync.at)}, ${sync.pages ?? "?"} pages, ${sync.wordpress} chunks${failed}`;
+            return `Last sync: ${formatDate(sync.at)}, ${sync.pages ?? "?"} pages, ${sync.wordpress} chunks${excluded}${failed}`;
         }
 
         function overviewCard(site) {
