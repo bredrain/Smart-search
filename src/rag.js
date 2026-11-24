@@ -3,6 +3,7 @@ import { embed, search } from "./vectors.js";
 
 const TOP_K = 5;
 const MIN_SCORE = 0.2;
+const MAX_SOURCES = 3;
 
 function pickLanguage(site, lang) {
     if (site.languages.length === 0) return "";
@@ -10,6 +11,23 @@ function pickLanguage(site, lang) {
     return site.languages.find((code) => code === page)
         || site.languages.find((code) => code === page.slice(0, 2))
         || site.languages[0];
+}
+
+async function questionLanguage(question) {
+    const completion = await openai.chat.completions.create({
+        model: config.chatModel,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+            { role: "system", content: 'Detect the language of the user\'s question. Reply in JSON: {"lang": "two-letter ISO 639-1 code"}' },
+            { role: "user", content: question },
+        ],
+    });
+    try {
+        return String(JSON.parse(completion.choices[0].message.content).lang || "").toLowerCase();
+    } catch (err) {
+        return "";
+    }
 }
 
 async function toSearchQuery(site, question, target) {
@@ -26,8 +44,9 @@ async function toSearchQuery(site, question, target) {
     return completion.choices[0].message.content.trim();
 }
 
-export async function findChunks(site, question, lang, minScore = MIN_SCORE) {
-    const target = pickLanguage(site, lang);
+export async function findChunks(site, question, lang, minScore = MIN_SCORE, asked) {
+    const language = asked ?? (site.languages.length > 0 ? await questionLanguage(question) : "");
+    const target = pickLanguage(site, language || lang);
     const [vector] = await embed(await toSearchQuery(site, question, target));
     const filter = target
         ? { should: [{ key: "lang", match: { value: target } }, { is_empty: { key: "lang" } }] }
@@ -36,13 +55,13 @@ export async function findChunks(site, question, lang, minScore = MIN_SCORE) {
     return results.filter((r) => r.score >= minScore);
 }
 
-const MAX_SOURCES = 3;
-
-function instructions(site, materials) {
+function instructions(site, materials, asked) {
+    const replyLanguage = asked ? ` (language code "${asked}")` : "";
     return [
-        `You are an assistant on the website of ${site.name}. Answer visitors' questions briefly and politely, in the language of the question.`,
+        `You are an assistant on the website of ${site.name}. Answer visitors' questions briefly and politely.`,
+        `Always answer in the language of the visitor's question${replyLanguage}, even if the materials are in another language.`,
         "Use ONLY the information from the Materials section. Do not make anything up.",
-                "Before answering, check that the materials are about exactly the thing the visitor asks about: the same place, object, person or event. If they describe a different thing that only looks similar, do not answer as if it were the same. Say that there is no information about what was asked, and you may mention what the materials do say, clearly as a different thing.",
+        "Before answering, check that the materials are about exactly the thing the visitor asks about: the same place, object, person or event. If they describe a different thing that only looks similar, do not answer as if it were the same. Say that there is no information about what was asked, and you may mention what the materials do say, clearly as a different thing.",
         'Example: question "What is the name of the rooftop telescope?", materials describe a writer\'s own telescope at home. Good answer: "There is no information about a rooftop telescope. The site only mentions a writer\'s own 10-inch Dobsonian telescope."',
         `If the answer is not in the materials, say you don't know and suggest contacting ${site.contact || "the website team"}.`,
         "",
@@ -64,7 +83,8 @@ function readReply(content) {
 }
 
 export async function answer(site, question, lang) {
-    const found = await findChunks(site, question, lang);
+    const asked = await questionLanguage(question);
+    const found = await findChunks(site, question, lang, MIN_SCORE, asked);
     const materials = found.length
         ? found.map((r, i) => `[${i + 1}] ${r.payload.title}\n${r.payload.text}`).join("\n\n---\n\n")
         : "(nothing found)";
@@ -74,7 +94,7 @@ export async function answer(site, question, lang) {
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
-            { role: "system", content: instructions(site, materials) },
+            { role: "system", content: instructions(site, materials, asked) },
             { role: "user", content: question },
         ],
     });
