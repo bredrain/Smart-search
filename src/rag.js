@@ -33,35 +33,54 @@ export async function findChunks(site, question, lang, minScore = MIN_SCORE) {
         ? { should: [{ key: "lang", match: { value: target } }, { is_empty: { key: "lang" } }] }
         : undefined;
     const results = await search(site.collection, vector, TOP_K, filter);
-        return results.filter((r) => r.score >= minScore);
+    return results.filter((r) => r.score >= minScore);
 }
+
+const MAX_SOURCES = 3;
 
 function instructions(site, materials) {
     return [
         `You are an assistant on the website of ${site.name}. Answer visitors' questions briefly and politely, in the language of the question.`,
         "Use ONLY the information from the Materials section. Do not make anything up.",
+                "Before answering, check that the materials are about exactly the thing the visitor asks about: the same place, object, person or event. If they describe a different thing that only looks similar, do not answer as if it were the same. Say that there is no information about what was asked, and you may mention what the materials do say, clearly as a different thing.",
+        'Example: question "What is the name of the rooftop telescope?", materials describe a writer\'s own telescope at home. Good answer: "There is no information about a rooftop telescope. The site only mentions a writer\'s own 10-inch Dobsonian telescope."',
         `If the answer is not in the materials, say you don't know and suggest contacting ${site.contact || "the website team"}.`,
+        "",
+        'Reply in JSON: {"answer": "your answer", "used": [numbers of the materials you actually used for the answer]}. Use an empty list if you did not use any material.',
         "",
         "Materials:",
         materials,
     ].join("\n");
 }
 
+function readReply(content) {
+    try {
+        const data = JSON.parse(content);
+        const used = Array.isArray(data.used) ? data.used.map(Number).filter(Number.isInteger) : [];
+        return { text: String(data.answer || ""), used };
+    } catch (err) {
+        return { text: content, used: [] };
+    }
+}
+
 export async function answer(site, question, lang) {
     const found = await findChunks(site, question, lang);
     const materials = found.length
-        ? found.map((r) => `${r.payload.title}\n${r.payload.text}`).join("\n\n---\n\n")
+        ? found.map((r, i) => `[${i + 1}] ${r.payload.title}\n${r.payload.text}`).join("\n\n---\n\n")
         : "(nothing found)";
 
     const completion = await openai.chat.completions.create({
         model: config.chatModel,
         temperature: 0.2,
+        response_format: { type: "json_object" },
         messages: [
             { role: "system", content: instructions(site, materials) },
             { role: "user", content: question },
         ],
     });
 
-    const sources = [...new Set(found.map((r) => r.payload.url).filter(Boolean))];
-    return { answer: completion.choices[0].message.content, sources, found: found.length };
+    const reply = readReply(completion.choices[0].message.content);
+    const usedChunks = reply.used.map((n) => found[n - 1]).filter(Boolean);
+    const sources = [...new Set(usedChunks.map((r) => r.payload.url).filter(Boolean))].slice(0, MAX_SOURCES);
+    return { answer: reply.text, sources, found: found.length };
 }
