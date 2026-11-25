@@ -10,6 +10,7 @@ import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText }
 import { checkLimits } from "./limits.js";
 import { transcribe, speech } from "./voice.js";
 import { httpError } from "./errors.js";
+import { safeEqual, tooManyFailures, recordFailure } from "./security.js";
 
 const server = express();
 server.set("trust proxy", 1);
@@ -33,8 +34,12 @@ function handle(fn) {
 }
 
 function adminAuth(req, res, next) {
+    if (tooManyFailures(req.ip)) {
+        return res.status(429).json({ error: "Too many wrong keys. Try again in 15 minutes." });
+    }
     const key = req.get("x-admin-key") || req.query.key;
-    if (!config.adminKey || key !== config.adminKey) {
+    if (!safeEqual(key, config.adminKey)) {
+        recordFailure(req.ip);
         return res.status(401).json({ error: "Invalid admin key" });
     }
     next();
