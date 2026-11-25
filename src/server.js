@@ -10,7 +10,7 @@ import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText }
 import { checkLimits } from "./limits.js";
 import { transcribe, speech } from "./voice.js";
 import { httpError } from "./errors.js";
-import { safeEqual, tooManyFailures, recordFailure } from "./security.js";
+import { safeEqual, tooManyFailures, recordFailure, rememberAnswer, isKnownAnswer } from "./security.js";
 
 const server = express();
 server.set("trust proxy", 1);
@@ -177,7 +177,9 @@ server.post("/ask", handle(async (req, res) => {
         return res.status(400).json({ error: "Empty question" });
     }
     checkLimits(site.id, req.ip);
-    res.json(await answer(site, question, String(req.body?.lang || "")));
+        const result = await answer(site, question, String(req.body?.lang || ""));
+    rememberAnswer(site.id, result.answer);
+    res.json(result);
 }));
 
 server.post("/hooks/pages/:id", handle(async (req, res) => {
@@ -210,6 +212,9 @@ server.post("/transcribe", express.raw({ type: () => true, limit: "5mb" }), hand
 server.post("/speak", handle(async (req, res) => {
     const site = requireSiteByKey(String(req.body?.key || ""));
     checkOrigin(req, site);
+    if (!isKnownAnswer(site.id, req.body?.text)) {
+        throw httpError(403, "Only chat answers can be read aloud");
+    }
     checkLimits(site.id, req.ip);
     const audio = await speech(req.body?.text, config.speechVoice);
     res.set("Content-Type", "audio/mpeg");
