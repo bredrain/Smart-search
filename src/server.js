@@ -182,8 +182,11 @@ server.post("/ask", handle(async (req, res) => {
 
 server.post("/hooks/pages/:id", handle(async (req, res) => {
     const site = requireSite(req.params.id);
-    const secret = req.get("x-hook-secret");
-    if (!secret || secret !== site.hookSecret) {
+        if (tooManyFailures(req.ip)) {
+        throw httpError(429, "Too many wrong secrets. Try again in 15 minutes.");
+    }
+    if (!safeEqual(req.get("x-hook-secret"), site.hookSecret)) {
+        recordFailure(req.ip);
         throw httpError(401, "Invalid hook secret");
     }
     const update = checkPageUpdate(site, req.body || {});
