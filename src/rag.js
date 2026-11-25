@@ -102,5 +102,5 @@ export async function answer(site, question, lang) {
     const reply = readReply(completion.choices[0].message.content);
     const usedChunks = reply.used.map((n) => found[n - 1]).filter(Boolean);
     const sources = [...new Set(usedChunks.map((r) => r.payload.url).filter(Boolean))].slice(0, MAX_SOURCES);
-    return { answer: reply.text, sources, found: found.length };
+        return { answer: reply.text, sources, found: found.length, lang: asked };
 }

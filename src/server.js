@@ -8,6 +8,7 @@ import { findChunks, answer } from "./rag.js";
 import { countPoints, dropCollection } from "./vectors.js";
 import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText } from "./documents.js";
 import { checkLimits } from "./limits.js";
+import { transcribe, speech } from "./voice.js";
 import { httpError } from "./errors.js";
 
 const server = express();
@@ -121,6 +122,12 @@ admin.delete("/sites/:id/documents/:docId", handle(async (req, res) => {
     res.json({ ok: true });
 }));
 
+admin.post("/speech", handle(async (req, res) => {
+    const audio = await speech(req.body?.text, String(req.body?.voice || ""));
+    res.set("Content-Type", "audio/mpeg");
+    res.send(audio);
+}));
+
 server.use("/admin/api", admin);
 
 function publicCors(req, res, next) {
@@ -148,6 +155,7 @@ function checkOrigin(req, site) {
 
 server.use("/widget-config", publicCors);
 server.use("/ask", publicCors);
+server.use("/transcribe", publicCors);
 
 server.get("/widget-config", handle(async (req, res) => {
     const site = requireSiteByKey(String(req.query.key || ""));
@@ -178,6 +186,16 @@ server.post("/hooks/pages/:id", handle(async (req, res) => {
         .then((count) => console.log(`${label}: ${update.action === "delete" ? "deleted" : `${count} chunks`}`))
         .catch((err) => console.error(`${label} failed:`, err.message));
     res.status(202).json({ ok: true });
+}));
+
+server.post("/transcribe", express.raw({ type: () => true, limit: "5mb" }), handle(async (req, res) => {
+    const site = requireSiteByKey(String(req.query.key || ""));
+    checkOrigin(req, site);
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        throw httpError(400, "Empty recording");
+    }
+    checkLimits(site.id, req.ip);
+    res.json({ text: await transcribe(req.body, req.get("content-type")) });
 }));
 
 async function syncAll() {

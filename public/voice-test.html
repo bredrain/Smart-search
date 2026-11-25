@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Voice test</title>
+    <style>
+        body { max-width: 720px; margin: 40px auto; padding: 0 20px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: #1f2937; }
+        h1 { font-size: 20px; }
+        h2 { margin-top: 28px; font-size: 16px; }
+        label { display: block; margin: 12px 0 4px; font-weight: 600; }
+        textarea, input, select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; box-sizing: border-box; }
+        textarea { min-height: 110px; }
+        button { margin-top: 10px; padding: 8px 14px; border: none; border-radius: 6px; background: #1f2937; color: #fff; font: inherit; cursor: pointer; }
+        button:disabled { opacity: 0.6; }
+        .muted { color: #6b7280; }
+        .error { color: #b91c1c; }
+    </style>
+</head>
+<body>
+    <h1>Voice test</h1>
+    <p class="muted">Compare the browser voice with the OpenAI voice on the same text.</p>
+
+    <label for="text">Text</label>
+    <textarea id="text">Our gourmet restaurant is open from Wednesday to Saturday, from 6 p.m. to 11 p.m. Dogs are welcome in the hotel, but not in the restaurant.</textarea>
+
+    <h2>Browser voice (free)</h2>
+    <label for="browser-voice">Voice</label>
+    <select id="browser-voice"></select>
+    <button id="browser-play" type="button">Play browser voice</button>
+    <p id="browser-note" class="muted"></p>
+
+    <h2>OpenAI voice (paid)</h2>
+    <label for="key">Admin key</label>
+    <input id="key" type="password" autocomplete="off">
+    <label for="ai-voice">Voice</label>
+    <select id="ai-voice">
+        <option>alloy</option><option>ash</option><option>ballad</option><option>coral</option><option>echo</option><option>fable</option>
+        <option>nova</option><option>onyx</option><option>sage</option><option>shimmer</option><option>verse</option>
+    </select>
+    <button id="ai-play" type="button">Play OpenAI voice</button>
+    <p id="ai-note" class="muted"></p>
+
+    <script>
+        const text = document.getElementById("text");
+        const browserVoice = document.getElementById("browser-voice");
+        const browserNote = document.getElementById("browser-note");
+        const aiNote = document.getElementById("ai-note");
+        const aiButton = document.getElementById("ai-play");
+        const keyInput = document.getElementById("key");
+
+        try {
+            keyInput.value = sessionStorage.getItem("adminKey") || "";
+        } catch (err) {}
+
+        function fillVoices() {
+            const voices = speechSynthesis.getVoices();
+            browserVoice.replaceChildren(...voices.map((voice, index) => {
+                const option = document.createElement("option");
+                option.value = String(index);
+                option.textContent = `${voice.name} (${voice.lang})`;
+                return option;
+            }));
+            browserNote.textContent = voices.length ? `${voices.length} voices on this device` : "No voices found in this browser";
+        }
+
+        if ("speechSynthesis" in window) {
+            fillVoices();
+            speechSynthesis.addEventListener("voiceschanged", fillVoices);
+        } else {
+            browserNote.textContent = "This browser cannot speak";
+        }
+
+        document.getElementById("browser-play").addEventListener("click", () => {
+            speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text.value);
+            const voice = speechSynthesis.getVoices()[Number(browserVoice.value)];
+            if (voice) {
+                utterance.voice = voice;
+                utterance.lang = voice.lang;
+            }
+            speechSynthesis.speak(utterance);
+        });
+
+        aiButton.addEventListener("click", async () => {
+            aiButton.disabled = true;
+            aiNote.className = "muted";
+            aiNote.textContent = "Generating...";
+            try {
+                const response = await fetch("/admin/api/speech", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-admin-key": keyInput.value },
+                    body: JSON.stringify({ text: text.value, voice: document.getElementById("ai-voice").value }),
+                });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || `Request failed (${response.status})`);
+                }
+                const audio = new Audio(URL.createObjectURL(await response.blob()));
+                await audio.play();
+                aiNote.textContent = "";
+            } catch (err) {
+                aiNote.className = "error";
+                aiNote.textContent = err.message;
+            } finally {
+                aiButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

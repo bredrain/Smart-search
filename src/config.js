@@ -26,6 +26,8 @@ export const config = {
     embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
     vectorSize: Number(process.env.VECTOR_SIZE || 1536),
     chatModel: process.env.CHAT_MODEL || "gpt-4.1-mini",
+    transcribeModel: process.env.TRANSCRIBE_MODEL || "gpt-transcribe",
+    speechModel: process.env.SPEECH_MODEL || "gpt-4o-mini-tts",
     firstSite: {
         name: process.env.SITE_NAME || "",
         wpUrl: process.env.WP_URL || "",
