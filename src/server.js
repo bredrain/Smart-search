@@ -199,7 +199,7 @@ server.post("/hooks/pages/:id", handle(async (req, res) => {
     res.status(202).json({ ok: true });
 }));
 
-server.post("/transcribe", express.raw({ type: () => true, limit: "5mb" }), handle(async (req, res) => {
+server.post("/transcribe", express.raw({ type: () => true, limit: "1mb" }), handle(async (req, res) => {
     const site = requireSiteByKey(String(req.query.key || ""));
     checkOrigin(req, site);
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
