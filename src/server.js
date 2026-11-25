@@ -156,6 +156,7 @@ function checkOrigin(req, site) {
 server.use("/widget-config", publicCors);
 server.use("/ask", publicCors);
 server.use("/transcribe", publicCors);
+server.use("/speak", publicCors);
 
 server.get("/widget-config", handle(async (req, res) => {
     const site = requireSiteByKey(String(req.query.key || ""));
@@ -196,6 +197,15 @@ server.post("/transcribe", express.raw({ type: () => true, limit: "5mb" }), hand
     }
     checkLimits(site.id, req.ip);
     res.json({ text: await transcribe(req.body, req.get("content-type")) });
+}));
+
+server.post("/speak", handle(async (req, res) => {
+    const site = requireSiteByKey(String(req.body?.key || ""));
+    checkOrigin(req, site);
+    checkLimits(site.id, req.ip);
+    const audio = await speech(req.body?.text, config.speechVoice);
+    res.set("Content-Type", "audio/mpeg");
+    res.send(audio);
 }));
 
 async function syncAll() {

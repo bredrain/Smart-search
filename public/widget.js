@@ -11,7 +11,6 @@
     const pageLang = (document.documentElement.lang || "").toLowerCase();
     const canRecord = Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
     const MAX_RECORDING_MS = 30000;
-    const canSpeak = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 
     const micIcon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg>';
     const speakerIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg>';
@@ -73,36 +72,49 @@
         });
         root.querySelector(".close").addEventListener("click", () => {
             box.hidden = true;
-            if (canSpeak) speechSynthesis.cancel();
+            stopSpeaking();
         });
 
         let speakingButton = null;
+        let currentAudio = null;
 
         function stopSpeaking() {
-            speechSynthesis.cancel();
+            if (currentAudio) currentAudio.pause();
+            currentAudio = null;
             if (speakingButton) speakingButton.classList.remove("active");
             speakingButton = null;
         }
 
-        function speak(text, lang, button) {
+        async function speak(text, button) {
             if (speakingButton === button) {
                 stopSpeaking();
                 return;
             }
             stopSpeaking();
-            const utterance = new SpeechSynthesisUtterance(text);
-            if (lang) {
-                utterance.lang = lang;
-                const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
-                if (voice) utterance.voice = voice;
-            }
-            utterance.onend = () => {
-                if (speakingButton === button) stopSpeaking();
-            };
-            utterance.onerror = utterance.onend;
             speakingButton = button;
             button.classList.add("active");
-            speechSynthesis.speak(utterance);
+            try {
+                const response = await fetch(`${server}/speak`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ key, text }),
+                });
+                if (!response.ok) throw new Error("Speech failed");
+                const url = URL.createObjectURL(await response.blob());
+                if (speakingButton !== button) {
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+                const audio = new Audio(url);
+                currentAudio = audio;
+                audio.onended = () => {
+                    URL.revokeObjectURL(url);
+                    if (speakingButton === button) stopSpeaking();
+                };
+                await audio.play();
+            } catch (err) {
+                if (speakingButton === button) stopSpeaking();
+            }
         }
 
         function addMessage(text, type, sources, lang) {
@@ -123,12 +135,12 @@
                 }
                 div.appendChild(list);
             }
-            if (type === "bot" && canSpeak && lang !== undefined) {
+            if (type === "bot" && lang !== undefined) {
                 const listen = document.createElement("button");
                 listen.type = "button";
                 listen.className = "listen";
                 listen.innerHTML = `${speakerIcon}<span>Listen</span>`;
-                listen.addEventListener("click", () => speak(text, lang, listen));
+                listen.addEventListener("click", () => speak(text, listen));
                 div.appendChild(document.createElement("br"));
                 div.appendChild(listen);
             }
@@ -146,7 +158,7 @@
             })
             .catch(() => {});
 
-        async function ask(question) {
+        async function ask(question, spoken) {
             addMessage(question, "user");
             input.value = "";
             send.disabled = true;
@@ -163,7 +175,9 @@
                 if (!response.ok) {
                     addMessage(data.error || "Something went wrong. Please try again.", "error");
                 } else {
-                    addMessage(data.answer, "bot", data.sources, data.lang || "");
+                    const reply = addMessage(data.answer, "bot", data.sources, data.lang || "");
+                    const listen = reply.querySelector(".listen");
+                    if (spoken && listen) speak(data.answer, listen);
                 }
             } catch (err) {
                 waiting.remove();
@@ -200,7 +214,7 @@
                     if (!response.ok) {
                         addMessage(data.error || "Voice input did not work. Please type your question.", "error");
                     } else if (data.text) {
-                        await ask(data.text);
+                        await ask(data.text, true);
                     } else {
                         addMessage("Sorry, I did not hear anything. Please try again.", "error");
                     }
@@ -218,7 +232,7 @@
                     recorder.stop();
                     return;
                 }
-                if (canSpeak) stopSpeaking();
+                stopSpeaking();
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });

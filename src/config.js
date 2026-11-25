@@ -28,6 +28,7 @@ export const config = {
     chatModel: process.env.CHAT_MODEL || "gpt-4.1-mini",
     transcribeModel: process.env.TRANSCRIBE_MODEL || "gpt-transcribe",
     speechModel: process.env.SPEECH_MODEL || "gpt-4o-mini-tts",
+    speechVoice: process.env.SPEECH_VOICE || "coral",
     firstSite: {
         name: process.env.SITE_NAME || "",
         wpUrl: process.env.WP_URL || "",
