@@ -39,7 +39,7 @@ function adminAuth(req, res, next) {
     if (tooManyFailures(req.ip)) {
         return res.status(429).json({ error: "Too many wrong keys. Try again in 15 minutes." });
     }
-    const key = req.get("x-admin-key") || req.query.key;
+        const key = req.get("x-admin-key");
     if (!safeEqual(key, config.adminKey)) {
         recordFailure(req.ip);
         return res.status(401).json({ error: "Invalid admin key" });
