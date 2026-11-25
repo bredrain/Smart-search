@@ -10,10 +10,12 @@ import { createDocument, deleteDocument, deleteSiteDocuments, readDocumentText }
 import { checkLimits } from "./limits.js";
 import { transcribe, speech } from "./voice.js";
 import { httpError } from "./errors.js";
-import { safeEqual, tooManyFailures, recordFailure, rememberAnswer, isKnownAnswer } from "./security.js";
+import { safeEqual, tooManyFailures, recordFailure, rememberAnswer, isKnownAnswer, securityHeaders } from "./security.js";
 
 const server = express();
 server.set("trust proxy", 1);
+server.disable("x-powered-by");
+server.use(securityHeaders);
 server.use("/admin/api", express.json({ limit: "25mb" }));
 server.use("/hooks", express.json({ limit: "10mb" }));
 server.use(express.json());

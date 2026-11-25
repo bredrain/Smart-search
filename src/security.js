@@ -38,6 +38,16 @@ export function isKnownAnswer(siteId, text) {
     return Boolean(expires && expires > Date.now());
 }
 
+export function securityHeaders(req, res, next) {
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    if (String(req.path || "").startsWith("/admin")) {
+        res.set("X-Frame-Options", "DENY");
+        res.set("Cache-Control", "no-store");
+    }
+    next();
+}
+
 setInterval(() => {
     const now = Date.now();
     for (const [ip, list] of failures) {
