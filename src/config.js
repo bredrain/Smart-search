@@ -18,6 +18,7 @@ export function toList(value) {
 
 export const config = {
     port: Number(process.env.SERVICE_PORT || process.env.PORT || 3030),
+    host: process.env.HOST || "127.0.0.1",
     adminKey: process.env.ADMIN_KEY || "",
     dataDir: process.env.DATA_DIR || "data",
     perMinuteLimit: Number(process.env.PER_MINUTE_LIMIT || 10),

@@ -236,6 +236,6 @@ if (config.reloadHours > 0) {
     console.log(`Automatic sync every ${config.reloadHours} hours`);
 }
 
-server.listen(config.port, () => {
-    console.log(`Server running at http://localhost:${config.port}`);
+server.listen(config.port, config.host, () => {
+    console.log(`Server running at http://${config.host}:${config.port}`);
 });
