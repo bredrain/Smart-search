@@ -17,6 +17,7 @@ export function toList(value) {
 }
 
 export const config = {
+    openaiKey: required("OPENAI_API_KEY"),
     port: Number(process.env.SERVICE_PORT || process.env.PORT || 3030),
     host: process.env.HOST || "127.0.0.1",
     adminKey: process.env.ADMIN_KEY || "",
@@ -26,9 +27,10 @@ export const config = {
     reloadHours: Number(process.env.RELOAD_HOURS || 0),
     embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
     vectorSize: Number(process.env.VECTOR_SIZE || 1536),
-    chatModel: process.env.CHAT_MODEL || "gpt-4.1-mini",
+    chatModel: process.env.CHAT_MODEL || "gpt-6-luna",
+    reasoningEffort: process.env.REASONING_EFFORT || "none",
     transcribeModel: process.env.TRANSCRIBE_MODEL || "gpt-transcribe",
-    speechModel: process.env.SPEECH_MODEL || "gpt-4o-mini-tts",
+    speechModel: process.env.SPEECH_MODEL || "gpt-realtime-2.1-mini",
     speechVoice: process.env.SPEECH_VOICE || "coral",
     firstSite: {
         name: process.env.SITE_NAME || "",
@@ -43,7 +45,7 @@ export const config = {
     },
 };
 
-export const openai = new OpenAI({ apiKey: required("OPENAI_API_KEY") });
+export const openai = new OpenAI({ apiKey: config.openaiKey });
 
 export const qdrant = new QdrantClient({
     url: required("QDRANT_URL"),

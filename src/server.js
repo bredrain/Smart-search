@@ -131,7 +131,7 @@ admin.delete("/sites/:id/documents/:docId", handle(async (req, res) => {
 
 admin.post("/speech", handle(async (req, res) => {
     const audio = await speech(req.body?.text, String(req.body?.voice || ""));
-    res.set("Content-Type", "audio/mpeg");
+    res.set("Content-Type", "audio/wav");
     res.send(audio);
 }));
 
@@ -219,7 +219,7 @@ server.post("/speak", handle(async (req, res) => {
     }
     checkLimits(site.id, req.ip);
     const audio = await speech(req.body?.text, config.speechVoice);
-    res.set("Content-Type", "audio/mpeg");
+    res.set("Content-Type", "audio/wav");
     res.send(audio);
 }));
 

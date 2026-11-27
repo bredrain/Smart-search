@@ -5,6 +5,26 @@ const TOP_K = 5;
 const MIN_SCORE = 0.2;
 const MAX_SOURCES = 3;
 
+function chatOptions() {
+    return { model: config.chatModel, reasoning_effort: config.reasoningEffort };
+}
+
+function timer() {
+    const start = Date.now();
+    let last = start;
+    const parts = [];
+    return {
+        mark(name) {
+            const now = Date.now();
+            parts.push(`${name} ${((now - last) / 1000).toFixed(1)}s`);
+            last = now;
+        },
+        done() {
+            return `${parts.join(", ")}, total ${((Date.now() - start) / 1000).toFixed(1)}s`;
+        },
+    };
+}
+
 function pickLanguage(site, lang) {
     if (site.languages.length === 0) return "";
     const page = String(lang || "").toLowerCase();
@@ -15,8 +35,7 @@ function pickLanguage(site, lang) {
 
 async function questionLanguage(question) {
     const completion = await openai.chat.completions.create({
-        model: config.chatModel,
-        temperature: 0,
+        ...chatOptions(),
         response_format: { type: "json_object" },
         messages: [
             { role: "system", content: 'Detect the language of the user\'s question. Reply in JSON: {"lang": "two-letter ISO 639-1 code"}' },
@@ -34,8 +53,7 @@ async function toSearchQuery(site, question, target) {
     const language = target ? `the language with the code "${target}"` : site.language;
     if (!language) return question;
     const completion = await openai.chat.completions.create({
-        model: config.chatModel,
-        temperature: 0,
+        ...chatOptions(),
         messages: [
             { role: "system", content: `Translate the user's question into ${language}. If it is already in that language, return it unchanged. Return only the question, nothing else.` },
             { role: "user", content: question },
@@ -44,14 +62,18 @@ async function toSearchQuery(site, question, target) {
     return completion.choices[0].message.content.trim();
 }
 
-export async function findChunks(site, question, lang, minScore = MIN_SCORE, asked) {
+export async function findChunks(site, question, lang, minScore = MIN_SCORE, asked, time) {
     const language = asked ?? (site.languages.length > 0 ? await questionLanguage(question) : "");
     const target = pickLanguage(site, language || lang);
-    const [vector] = await embed(await toSearchQuery(site, question, target));
+    const query = await toSearchQuery(site, question, target);
+    time?.mark("translate");
+    const [vector] = await embed(query);
+    time?.mark("embed");
     const filter = target
         ? { should: [{ key: "lang", match: { value: target } }, { is_empty: { key: "lang" } }] }
         : undefined;
     const results = await search(site.collection, vector, TOP_K, filter);
+    time?.mark("search");
     return results.filter((r) => r.score >= minScore);
 }
 
@@ -83,24 +105,27 @@ function readReply(content) {
 }
 
 export async function answer(site, question, lang) {
+    const time = timer();
     const asked = await questionLanguage(question);
-    const found = await findChunks(site, question, lang, MIN_SCORE, asked);
+    time.mark("language");
+    const found = await findChunks(site, question, lang, MIN_SCORE, asked, time);
     const materials = found.length
         ? found.map((r, i) => `[${i + 1}] ${r.payload.title}\n${r.payload.text}`).join("\n\n---\n\n")
         : "(nothing found)";
 
     const completion = await openai.chat.completions.create({
-        model: config.chatModel,
-        temperature: 0.2,
+        ...chatOptions(),
         response_format: { type: "json_object" },
         messages: [
             { role: "system", content: instructions(site, materials, asked) },
             { role: "user", content: question },
         ],
     });
+    time.mark("answer");
+    console.log(`Answer on ${site.id}: ${time.done()}`);
 
     const reply = readReply(completion.choices[0].message.content);
     const usedChunks = reply.used.map((n) => found[n - 1]).filter(Boolean);
     const sources = [...new Set(usedChunks.map((r) => r.payload.url).filter(Boolean))].slice(0, MAX_SOURCES);
-        return { answer: reply.text, sources, found: found.length, lang: asked };
+    return { answer: reply.text, sources, found: found.length, lang: asked };
 }
